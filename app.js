@@ -79,18 +79,6 @@ function detailPad() {
   return DESKTOP() ? { left: 404, right: 424, top: 60, bottom: 20 } : { left: 0, right: 0, top: 60, bottom: Math.round(innerHeight * 0.52) };
 }
 
-/* значки станций — свои, не фирменные логотипы */
-function badge(letter, shape) {
-  const r = 2, s = 22 * r, c = document.createElement('canvas'); c.width = c.height = s;
-  const x = c.getContext('2d');
-  x.beginPath();
-  if (shape === 'square') { const k = 6 * r; x.moveTo(k, 0); x.arcTo(s, 0, s, s, k); x.arcTo(s, s, 0, s, k); x.arcTo(0, s, 0, 0, k); x.arcTo(0, 0, s, 0, k); x.fillStyle = AMBER; x.fill(); }
-  else { x.arc(s / 2, s / 2, s / 2 - r, 0, Math.PI * 2); x.fillStyle = '#eef0f3'; x.fill(); x.lineWidth = 2.5 * r; x.strokeStyle = AMBER; x.stroke(); }
-  x.fillStyle = '#16181c'; x.font = `800 ${14 * r}px Inter, system-ui, sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText(letter, s / 2, s / 2 + r);
-  return { width: s, height: s, data: x.getImageData(0, 0, s, s).data };
-}
-
 const T = { // стили транспорта
   subway: { color: ['coalesce', ['get', 'colour'], '#e8eaed'], w: [10, 2.4, 16, 6], min: 0, labelMin: 12 },
   sbahn:  { color: ['coalesce', ['get', 'colour'], '#5fa8e8'], w: [10, 1.8, 16, 4.5], min: 0, labelMin: 12.5, dash: [3, 1.2] },
@@ -108,10 +96,13 @@ map.on('style.load', async () => {
     return _add(def, before);
   };
 
-  map.addImage('badge-u', badge('U', 'square'), { pixelRatio: 2 });
-  map.addImage('badge-s', badge('S', 'circle'), { pixelRatio: 2 });
-
-  const bez = await fetch('data/wien_bezirke.json').then(r => r.json());
+  const loadImg = (name, url) => new Promise(res => map.loadImage(url, (err, img) => { if (!err && !map.hasImage(name)) map.addImage(name, img, { pixelRatio: 2 }); res(); }));
+  const [bez, ust] = await Promise.all([
+    fetch('data/wien_bezirke.json').then(r => r.json()),
+    fetch('data/ubahn_stations.json').then(r => r.json()),
+    loadImg('badge-u', 'img/ubahn.png'),
+    loadImg('badge-s', 'img/sbahn.png')
+  ]);
 
   // районы
   map.addSource('districts', { type: 'geojson', data: bez });
@@ -152,14 +143,15 @@ map.on('style.load', async () => {
   const nameLayout = { 'text-field': ['get', 'name'], 'text-size': 11, 'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
                        'text-optional': true, 'text-anchor': 'left' };
   stopLayer('stop-s', ['all', ['==', ['get', 'mode'], 'rail'], ['==', ['get', 'stop_type'], 'station']], { type: 'symbol', minzoom: 11,
-    layout: { 'icon-image': 'badge-s', 'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.7, 15, 1], 'icon-allow-overlap': true,
-              'icon-offset': [11, 0], ...nameLayout, 'text-offset': [2.2, 0], 'text-field': ['step', ['zoom'], '', 13.5, ['get', 'name']] },
+    layout: { 'icon-image': 'badge-s', 'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.36, 15, 0.62], 'icon-allow-overlap': true,
+              'icon-offset': [14, 0], ...nameLayout, 'text-offset': [1.6, 0], 'text-field': ['step', ['zoom'], '', 13.5, ['get', 'name']] },
     paint: { 'text-color': '#cfe4fb', 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
-  stopLayer('stop-u', ['all', ['==', ['get', 'mode'], 'metro_rail'], ['==', ['get', 'stop_type'], 'station']], { type: 'symbol', minzoom: 10.5,
-    layout: { 'icon-image': 'badge-u', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10.5, 0.7, 15, 1], 'icon-allow-overlap': true,
-              'icon-offset': [-11, 0], ...nameLayout, 'text-anchor': 'right', 'text-offset': [-2.2, 0],
+  map.addSource('ustations', { type: 'geojson', data: ust });
+  map.addLayer({ id: 'stop-u', type: 'symbol', source: 'ustations', slot: 'top', minzoom: 10,
+    layout: { 'icon-image': 'badge-u', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.36, 15, 0.62], 'icon-allow-overlap': true,
+              'icon-offset': [-14, 0], ...nameLayout, 'text-anchor': 'right', 'text-offset': [-1.6, 0],
               'text-field': ['step', ['zoom'], '', 13, ['get', 'name']] },
-    paint: { 'text-color': '#ffe3a1', 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
+    paint: { 'text-color': '#cfe4fb', 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
 
   // наши точки
   map.addSource('poi', { type: 'geojson', data: fc([]) });

@@ -154,8 +154,8 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .lrow{display:flex;justify-content:space-between;align-items:center}
 .mini{background:var(--panel-2);border:1px solid var(--line);border-radius:7px;padding:3px 9px;font-size:11px;color:var(--dim);text-transform:none;letter-spacing:0}
 .sw{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;font:800 11px Inter,sans-serif;color:#16181c}
-.sw-u{background:var(--amber);border-radius:5px}
-.sw-s{background:#eef0f3;border:2px solid var(--amber);border-radius:50%;width:18px;height:18px}
+.sw-u{background:url(img/ubahn.png) center/contain no-repeat}
+.sw-s{background:url(img/sbahn.png) center/contain no-repeat}
 .sw-t{height:4px;background:#e05a4f;border-radius:2px}
 .sw-b{height:3px;background:#7aa2f7;border-radius:2px}
 .sw-g{background:#2f6b3f;border-radius:4px}
