@@ -17,17 +17,21 @@ const THEMES = {
        colorBuildings: '#3a3f46', colorPlaceLabels: '#8b9199', colorRoadLabels: '#5f666e', colorGreenspace: '#22262b' },
   b: { theme: 'default', lightPreset: 'night',
        colorLand: '#0d1628', colorWater: '#060d1a', colorRoads: '#1e2a40', colorMotorways: '#2a3a56',
-       colorBuildings: '#22314d', colorPlaceLabels: '#7f8ca3', colorRoadLabels: '#4c576b', colorGreenspace: '#0f1b30' }
+       colorBuildings: '#22314d', colorPlaceLabels: '#7f8ca3', colorRoadLabels: '#4c576b', colorGreenspace: '#0f1b30' },
+  c: { theme: 'monochrome', lightPreset: 'dusk',
+       colorLand: '#1c1f24', colorWater: '#121a24', colorRoads: '#2e333a', colorMotorways: '#3a4049',
+       colorBuildings: '#3a3f46', colorPlaceLabels: '#8b9199', colorRoadLabels: '#5f666e', colorGreenspace: '#22262b' }
 };
+const THEME_ORDER = ['a', 'b', 'c'];
+const THEME_NAMES = { a: 'Графит · сумерки', b: 'Синяя ночь', c: 'Монохром' };
 const GREEN_ON = '#2f6b3f';
 const COMMON = {
-  colorBuildingSelect: AMBER, colorBuildingHighlight: '#5b616b',
-  showPointOfInterestLabels: false, showTransitLabels: false, show3dObjects: true
+    showPointOfInterestLabels: false, showTransitLabels: false, show3dObjects: true
 };
 
 /* ---------- состояние ---------- */
 const S = {
-  theme: localGet('theme', 'a'),
+  theme: (t => THEMES[t] ? t : 'a')(localGet('theme', 'a')),
   mode: 'rent',
   buildings: [], listings: [], poi: [], transit: {},
   selected: null, orbiting: false,
@@ -98,9 +102,10 @@ map.on('style.load', async () => {
   };
 
   const loadImg = (name, url) => new Promise(res => map.loadImage(url, (err, img) => { if (!err && !map.hasImage(name)) map.addImage(name, img, { pixelRatio: 2 }); res(); }));
-  const [bez, ust] = await Promise.all([
+  const [bez, ust, planned] = await Promise.all([
     fetch('data/wien_bezirke.json').then(r => r.json()),
     fetch('data/ubahn_stations.json').then(r => r.json()),
+    fetch('data/planned.json').then(r => r.json()),
     loadImg('badge-u', 'img/ubahn.png'),
     loadImg('badge-s', 'img/sbahn.png')
   ]);
@@ -145,6 +150,26 @@ map.on('style.load', async () => {
       paint: { 'raster-opacity': 0.62, 'raster-fade-duration': 150, 'raster-emissive-strength': 1 } });
   }
 
+  // СТРОЯЩИЕСЯ ЛИНИИ: U5, новая U2 — тусклым пунктиром, со сроками
+  map.addSource('planned-lines', { type: 'geojson', data: planned.lines });
+  map.addSource('planned-stations', { type: 'geojson', data: planned.stations });
+  map.addLayer({ id: 'pl-line', type: 'line', source: 'planned-lines', slot: 'middle',
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-opacity': ['case', ['==', ['get', 'stage'], 1], 0.7, 0.45],
+             'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.4, 16, 6], 'line-dasharray': ['literal', [1.4, 1.2]] } });
+  map.addLayer({ id: 'pl-line-label', type: 'symbol', source: 'planned-lines', slot: 'top', minzoom: 12,
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 260, 'text-field': ['concat', ['get', 'line'], ' · ', ['get', 'open']], 'text-size': 11,
+              'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'] },
+    paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#000', 'text-halo-width': 1.6 } });
+  map.addLayer({ id: 'pl-stn', type: 'circle', source: 'planned-stations', slot: 'top', minzoom: 10.5,
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 15, 6.5], 'circle-color': '#15171a',
+             'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 2.2 } });
+  map.addLayer({ id: 'pl-stn-label', type: 'symbol', source: 'planned-stations', slot: 'top', minzoom: 12.5,
+    layout: { 'text-field': ['get', 'label'], 'text-size': 11, 'text-anchor': 'left', 'text-offset': [0.9, 0], 'text-optional': true,
+              'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'] },
+    paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#000', 'text-halo-width': 1.4 } });
+  map.on('click', 'pl-stn', e => { const p = e.features[0].properties; toast(`${p.name}: ${p.line}, ${p.open} — ${p.note}`, 4500); });
+
   // остановки и станции (Mapbox Streets)
   map.addSource('streets', { type: 'vector', url: 'mapbox://mapbox.mapbox-streets-v8' });
   const stopLayer = (id, filter, extra) => map.addLayer({ id, source: 'streets', 'source-layer': 'transit_stop_label', slot: 'top', filter, ...extra });
@@ -152,18 +177,24 @@ map.on('style.load', async () => {
     paint: { 'circle-radius': 2.6, 'circle-color': '#7aa2f7', 'circle-stroke-color': '#0b1220', 'circle-stroke-width': 1 } });
   stopLayer('stop-tram', ['==', ['get', 'mode'], 'tram'], { type: 'circle', minzoom: 13.5,
     paint: { 'circle-radius': 3.2, 'circle-color': '#e05a4f', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
-  const nameLayout = { 'text-field': ['get', 'name'], 'text-size': 11, 'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
-                       'text-optional': true, 'text-anchor': 'left' };
-  stopLayer('stop-s', ['all', ['==', ['get', 'mode'], 'rail'], ['==', ['get', 'stop_type'], 'station']], { type: 'symbol', minzoom: 11,
-    layout: { 'icon-image': 'badge-s', 'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.36, 15, 0.62], 'icon-allow-overlap': true,
-              'icon-offset': [14, 0], ...nameLayout, 'text-offset': [1.6, 0], 'text-field': ['step', ['zoom'], '', 13.5, ['get', 'name']] },
-    paint: { 'text-color': '#cfe4fb', 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
+  // станции: значок / точка / название — три независимых слоя на вид транспорта
+  const S_FILTER = ['all', ['==', ['get', 'mode'], 'rail'], ['==', ['get', 'stop_type'], 'station']];
   map.addSource('ustations', { type: 'geojson', data: ust });
-  map.addLayer({ id: 'stop-u', type: 'symbol', source: 'ustations', slot: 'top', minzoom: 10,
-    layout: { 'icon-image': 'badge-u', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.36, 15, 0.62], 'icon-allow-overlap': true,
-              'icon-offset': [-14, 0], ...nameLayout, 'text-anchor': 'right', 'text-offset': [-1.6, 0],
-              'text-field': ['step', ['zoom'], '', 13, ['get', 'name']] },
-    paint: { 'text-color': '#cfe4fb', 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
+  const STN = {
+    u: { src: { source: 'ustations' }, min: 10, nameMin: 12.5, side: -1, color: '#cfe4fb' },
+    s: { src: { source: 'streets', 'source-layer': 'transit_stop_label', filter: S_FILTER }, min: 11, nameMin: 13, side: 1, color: '#cfe4fb' }
+  };
+  for (const [k, c] of Object.entries(STN)) {
+    map.addLayer({ id: `stn-${k}-dot`, type: 'circle', slot: 'top', minzoom: c.min, ...c.src,
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.4, 15, 5], 'circle-color': '#fff', 'circle-stroke-color': '#0b0d10', 'circle-stroke-width': 1.4 } });
+    map.addLayer({ id: `stn-${k}-icon`, type: 'symbol', slot: 'top', minzoom: c.min, ...c.src,
+      layout: { 'icon-image': `badge-${k}`, 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.36, 15, 0.62], 'icon-allow-overlap': true,
+                'icon-offset': [c.side * 14, 0] } });
+    map.addLayer({ id: `stn-${k}-name`, type: 'symbol', slot: 'top', minzoom: c.nameMin, ...c.src,
+      layout: { 'text-field': ['get', 'name'], 'text-size': 11, 'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'], 'text-optional': true,
+                'text-anchor': c.side < 0 ? 'right' : 'left', 'text-offset': [c.side * 1.6, 0] },
+      paint: { 'text-color': c.color, 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
+  }
 
   // наши точки
   map.addSource('poi', { type: 'geojson', data: fc([]) });
@@ -180,10 +211,11 @@ map.on('style.load', async () => {
     paint: { 'fill-color': col, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 11, 1, 14, 0.9, 14.8, 0] } });
   map.addLayer({ id: 'fp-glow', type: 'line', source: 'fp', slot: 'top',
     paint: { 'line-color': col, 'line-blur': 4, 'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.55, 14, 0.5, 14.8, 0], 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 14.8, 12] } });
-  map.addLayer({ id: 'fp-3d', type: 'fill-extrusion', source: 'fp', slot: 'top', minzoom: 14,
-    paint: { 'fill-extrusion-color': ['case', ['get', 'sel'], '#ffc940', col], 'fill-extrusion-height': ['+', ['get', 'h'], 0.6],
-             'fill-extrusion-base': 0, 'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 14.6, 0.96],
-             'fill-extrusion-emissive-strength': 0.75 } });
+  map.addSource('fp3d', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'fp-3d', type: 'fill-extrusion', source: 'fp3d', slot: 'top', minzoom: 13.8,
+    paint: { 'fill-extrusion-color': ['case', ['get', 'sel'], '#ffc940', col], 'fill-extrusion-height': ['+', ['get', 'h'], 1.5],
+             'fill-extrusion-base': 0, 'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 13.8, 0, 14.6, 1],
+             'fill-extrusion-emissive-strength': 0.8, 'fill-extrusion-vertical-gradient': true } });
   map.addLayer({ id: 'fp-sel', type: 'line', source: 'fp', slot: 'top', filter: ['get', 'sel'], maxzoom: 14.8,
     paint: { 'line-color': '#fff', 'line-width': 2 } });
 
@@ -199,40 +231,34 @@ map.on('style.load', async () => {
     map.on('mouseleave', id, () => map.getCanvas().style.cursor = '');
   }
 
-  map.on('idle', paintBasemap);
   pushMapData();
   pushTransit();
   syncLayerToggles();
 });
 
-/* дублируем янтарь на «родное» здание Mapbox, чтобы стены не мерцали серым сквозь наш слой */
-let painted = [];
-function paintBasemap() {
-  if (!map.isStyleLoaded() || !map.getLayer('fp-3d')) return;
-  for (const f of painted) { try { map.setFeatureState(f, { select: false, highlight: false }); } catch {} }
-  painted = [];
-  if (map.getZoom() < 14) return;
-  const b = map.getBounds();
-  for (const bd of S.buildings) {
-    if (!bd.parts || (!bd.pass && S.f.hideFail)) continue;
-    for (const c of bd.parts) {
-      if (!b.contains(c)) continue;
-      const p = map.project(c);
-      let fs = [];
-      try { fs = map.queryRenderedFeatures([[p.x - 3, p.y - 3], [p.x + 3, p.y + 3]], { target: BUILDINGS_TARGET }); } catch {}
-      for (const f of fs) { try { map.setFeatureState(f, bd.pass ? { select: true } : { highlight: true }); painted.push(f); } catch {} }
-    }
-  }
-}
-
 function ringCentroid(r) { let x = 0, y = 0; for (const p of r) { x += p[0]; y += p[1]; } return [x / r.length, y / r.length]; }
 function geomParts(g) { return !g ? [] : g.type === 'Polygon' ? [g.coordinates] : g.coordinates; }
+/* оболочка: контур, раздвинутый на ~1 м от центра, чтобы наши стены стояли перед стенами Mapbox */
+const MX = 111320 * Math.cos(48.2 * Math.PI / 180), MY = 110574;
+function shell(g, meters = 1.1) {
+  const polys = geomParts(g).map(poly => {
+    const c = ringCentroid(poly[0]);
+    return poly.map(ring => ring.map(([x, y]) => {
+      const dx = (x - c[0]) * MX, dy = (y - c[1]) * MY, d = Math.hypot(dx, dy) || 1;
+      const k = (d + meters) / d;
+      return [c[0] + dx * k / MX, c[1] + dy * k / MY];
+    }));
+  });
+  return { type: 'MultiPolygon', coordinates: polys };
+}
 
 function pushMapData() {
   if (!map.getSource('fp')) return;
   const show = S.buildings.filter(b => b.pass || !S.f.hideFail);
   map.getSource('fp').setData(fc(show.filter(b => b.footprint).map(b => ({ type: 'Feature',
     properties: { id: b.id, pass: !!b.pass, sel: S.selected === b.id, h: +b.height_m || 15 }, geometry: b.footprint }))));
+  map.getSource('fp3d').setData(fc(show.filter(b => b.footprint).map(b => ({ type: 'Feature',
+    properties: { id: b.id, pass: !!b.pass, sel: S.selected === b.id, h: +b.height_m || 15 }, geometry: shell(b.footprint) }))));
   map.getSource('ours').setData(fc(show.map(b => ({ type: 'Feature',
     properties: { id: b.id, pass: !!b.pass }, geometry: { type: 'Point', coordinates: [b.lng, b.lat] } }))));
   const POI_COLORS = { p: '#3b82f6', a: '#ec4899', both: '#22c55e' };
@@ -241,7 +267,6 @@ function pushMapData() {
   const ds = [...S.f.districts];
   map.setFilter('district-fill', ['in', ['get', 'district'], ['literal', ds]]);
   map.setFilter('district-line-sel', ['in', ['get', 'district'], ['literal', ds]]);
-  paintBasemap();
 }
 function pushTransit() {
   for (const mode of ['subway', 'sbahn', 'tram', 'bus']) {
@@ -258,7 +283,7 @@ async function load() {
     sb.from('buildings_map').select('*'),
     sb.from('listings').select('id,building_id,url,source,status,deal_type,area_m2,rooms,floor,outdoor,outdoor_m2,furnished,rent_net,betriebskosten,rent_gross,monthly_total,heating_est,utilities_est,internet_est,garage_cost,kaution_amount,setup_sunk,furnishing_est,furnishing_recovery_pct,befristet,befristet_years,pets_allowed,price_per_m2,published_at'),
     sb.from('poi_map').select('id,label,owner,address,lng,lat'),
-    sb.from('transit_lines').select('mode,ref,colour,geom')
+    sb.from('transit_lines_v2').select('mode,ref,colour,geom')
   ]);
   if (b.error) { toast('Ошибка базы: ' + b.error.message, 6000); return; }
   S.buildings = b.data.map(x => {
@@ -457,7 +482,7 @@ $('grab').onclick = () => {
   else if (s.classList.contains('max')) { s.classList.remove('max'); s.classList.add('min'); }
   else s.classList.add('max');
 };
-$('themeBtn').onclick = () => applyTheme(S.theme === 'a' ? 'b' : 'a');
+$('themeBtn').onclick = () => { const t = THEME_ORDER[(THEME_ORDER.indexOf(S.theme) + 1) % THEME_ORDER.length]; applyTheme(t); toast('Тема: ' + THEME_NAMES[t], 1400); };
 $('modeSeg').onclick = e => {
   const m = e.target.dataset.mode; if (!m) return;
   S.mode = m; seg('modeSeg', m, 'mode');
@@ -468,17 +493,27 @@ addEventListener('resize', () => map.setPadding(S.selected ? detailPad() : baseP
 
 /* ---------- слои ---------- */
 const LAYER_GROUPS = {
-  lMetro:  ['tx-subway-casing', 'tx-subway', 'tx-subway-label', 'stop-u'],
-  lSbahn:  ['tx-sbahn-casing', 'tx-sbahn', 'tx-sbahn-label', 'stop-s'],
+  lMetro:  ['tx-subway-casing', 'tx-subway', 'tx-subway-label'],
+  lSbahn:  ['tx-sbahn-casing', 'tx-sbahn', 'tx-sbahn-label'],
   lTram:   ['tx-tram', 'tx-tram-label', 'stop-tram'],
   lBus:    ['tx-bus', 'tx-bus-label', 'stop-bus'],
   lDistricts: ['district-line', 'district-label'],
-  lPoi:    ['poi-dot', 'poi-label']
+  lPoi:    ['poi-dot', 'poi-label'],
+  lPlanned: ['pl-line', 'pl-line-label', 'pl-stn', 'pl-stn-label']
 };
 function vis(ids, on) { ids.forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')); }
 function syncLayerToggles() {
   if (!map.getLayer('fp-fill')) return;
   for (const [cb, ids] of Object.entries(LAYER_GROUPS)) vis(ids, $(cb).checked);
+  // станции: значки или точки, названия отдельно
+  const icons = $('lStnIcons').checked, names = $('lStnNames').checked;
+  for (const [k, cb] of [['u', 'lMetro'], ['s', 'lSbahn']]) {
+    const on = $(cb).checked, side = k === 'u' ? -1 : 1;
+    vis([`stn-${k}-icon`], on && icons);
+    vis([`stn-${k}-dot`], on && !icons);
+    vis([`stn-${k}-name`], on && names);
+    if (map.getLayer(`stn-${k}-name`)) map.setLayoutProperty(`stn-${k}-name`, 'text-offset', [side * (icons ? 1.6 : 0.7), 0]);
+  }
   map.setConfigProperty('basemap', 'show3dObjects', $('l3d').checked);
   map.setConfigProperty('basemap', 'showPointOfInterestLabels', $('lPoiLabels').checked);
   map.setConfigProperty('basemap', 'colorGreenspace', $('lGreen').checked ? GREEN_ON : THEMES[S.theme].colorGreenspace);
@@ -492,10 +527,10 @@ function syncLayerToggles() {
     lg.src = `${NOISE_WMS}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&sld_version=1.1.0&layer=2022_${layer}_${per === 'day' ? '24H' : 'NACHT'}_ZONEN_OE`;
     lg.hidden = false;
   } else lg.hidden = true;
-  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_flug', 'noiseNight'].map(k => [k, $(k).checked]))));
+  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames'].map(k => [k, $(k).checked]))));
 }
 try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of Object.entries(saved)) if ($(k)) $(k).checked = v; } catch {}
-[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_flug', 'noiseNight'].forEach(id => $(id).onchange = syncLayerToggles);
+[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames'].forEach(id => $(id).onchange = syncLayerToggles);
 $('noiseDay').onchange = syncLayerToggles;
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.css" rel="stylesheet">
-<link href="style.css?v=1794521865" rel="stylesheet">
+<link href="style.css?v=1794522136" rel="stylesheet">
 </head>
 <body class="theme-a">
 
@@ -78,6 +78,9 @@
     <label class="check"><input type="checkbox" id="lSbahn" checked> <span class="sw sw-s"></span> S-Bahn — линии и станции</label>
     <label class="check"><input type="checkbox" id="lTram"> <span class="sw sw-t"></span> Трамваи — линии и остановки</label>
     <label class="check"><input type="checkbox" id="lBus"> <span class="sw sw-b"></span> Автобусы — линии и остановки</label>
+    <label class="check"><input type="checkbox" id="lPlanned" checked> <span class="sw sw-pl"></span> Строящиеся: U5 и новая U2 <small>(со сроками)</small></label>
+    <label class="check sub"><input type="checkbox" id="lStnIcons" checked> Значки U и S у станций <small>(выкл — точки)</small></label>
+    <label class="check sub"><input type="checkbox" id="lStnNames" checked> Названия станций метро и S-Bahn</label>
     <div class="ftitle lrow" style="margin-top:16px">Шум
       <span class="seg small noise-seg"><label><input type="radio" name="np" id="noiseDay" checked> сутки</label><label><input type="radio" name="np" id="noiseNight"> ночь</label></span>
     </div>
@@ -94,8 +97,8 @@
     <label class="check"><input type="checkbox" id="lPoiLabels"> Подписи заведений</label>
     <div class="soon">
       <div class="ftitle">Скоро</div>
-      <div>Строящиеся линии: U5, продление U2, новые трамваи · Магазины и заправки · Зоны для собак</div>
-      <div style="margin-top:8px">Маршруты: © участники OpenStreetMap (ODbL)</div>
+      <div>Новые трамвайные линии · Магазины и заправки · Зоны для собак</div>
+      <div style="margin-top:8px">Маршруты: © участники OpenStreetMap (ODbL). Строящиеся линии — схема по станциям, сроки по Wiener Linien: U5 и новая U2 — 2030, вторые очереди — без твёрдой даты.</div>
     </div>
   </div>
 
@@ -139,7 +142,7 @@
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="config.js?v=1794521865"></script>
-<script src="app.js?v=1794521865"></script>
+<script src="config.js?v=1794522136"></script>
+<script src="app.js?v=1794522136"></script>
 </body>
 </html>
