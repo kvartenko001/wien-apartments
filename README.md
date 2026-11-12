@@ -4,5 +4,6 @@
 
 - Карта: Mapbox Standard, темы «графит» и «ночь»
 - Данные: Supabase, доступ только для участников
-- Метро: OpenMetroMaps Vienna (ODbL, данные OpenStreetMap)
+- Маршруты транспорта: © участники OpenStreetMap (ODbL)
+- Остановки и подложка: Mapbox Streets
 - Районы: Statistik Austria / Flooh Perlot (CC BY 4.0)

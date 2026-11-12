@@ -61,7 +61,14 @@ button{font:inherit;color:inherit;cursor:pointer}
   .sheet{left:12px;right:auto;bottom:12px;top:calc(60px + var(--safe-t));width:380px;height:auto!important;
     border:1px solid var(--line);border-radius:16px}
   .grab{display:none}
-  .detail{left:404px!important;right:auto!important;width:400px;bottom:12px!important;top:calc(60px + var(--safe-t))!important;max-height:none!important}
+  .detail{left:auto!important;right:12px!important;width:400px;bottom:12px!important;top:calc(60px + var(--safe-t))!important;max-height:none!important}
+  .cam{right:424px}
+  .mapboxgl-ctrl-bottom-right{right:412px}
+  .mapboxgl-ctrl-bottom-left,.mapboxgl-ctrl-bottom-right{bottom:0}
+  body:not(.has-detail) .mapboxgl-ctrl-bottom-right{right:0}
+}
+@media (max-width:899px){
+  .detail{max-height:50vh!important;bottom:calc(6px + var(--safe-b))}
 }
 
 /* list cards */
@@ -143,3 +150,12 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
   border:1px solid var(--line);padding:9px 14px;border-radius:10px;font-size:13px;max-width:90vw}
 
 .mapboxgl-ctrl-bottom-left,.mapboxgl-ctrl-bottom-right{bottom:calc(44vh + 4px)}
+
+.lrow{display:flex;justify-content:space-between;align-items:center}
+.mini{background:var(--panel-2);border:1px solid var(--line);border-radius:7px;padding:3px 9px;font-size:11px;color:var(--dim);text-transform:none;letter-spacing:0}
+.sw{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;font:800 11px Inter,sans-serif;color:#16181c}
+.sw-u{background:var(--amber);border-radius:5px}
+.sw-s{background:#eef0f3;border:2px solid var(--amber);border-radius:50%;width:18px;height:18px}
+.sw-t{height:4px;background:#e05a4f;border-radius:2px}
+.sw-b{height:3px;background:#7aa2f7;border-radius:2px}
+.sw-g{background:#2f6b3f;border-radius:4px}
