@@ -68,6 +68,13 @@ function applyTheme(t) {
 }
 
 map.on('style.load', async () => {
+  // освещение Mapbox (сумерки/ночь) затемняет и наши слои — даём им собственное свечение
+  const _add = map.addLayer.bind(map);
+  map.addLayer = (def, before) => {
+    const k = { line: 'line', circle: 'circle', fill: 'fill', symbol: 'text' }[def.type];
+    if (k) def.paint = { [k + '-emissive-strength']: 1, ...(def.paint || {}) };
+    return _add(def, before);
+  };
   const [bez, lines, stations] = await Promise.all(
     ['data/wien_bezirke.json', 'data/ubahn_lines.json', 'data/ubahn_stations.json'].map(u => fetch(u).then(r => r.json()))
   );
