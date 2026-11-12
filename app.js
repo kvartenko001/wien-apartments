@@ -294,7 +294,12 @@ async function load() {
   S.listings = l.data || [];
   S.poi = (p.data || []).map(x => ({ ...x, lng: +x.lng, lat: +x.lat }));
   S.transit = {};
-  for (const r of (t.data || [])) {
+  let rows = t.data || [];
+  if (!rows.length) { // новая таблица ещё не заполнена — берём прежние линии
+    const old = await sb.from('transit_lines').select('mode,ref,colour,geom');
+    rows = old.data || [];
+  }
+  for (const r of rows) {
     (S.transit[r.mode] ||= fc([])).features.push({ type: 'Feature', properties: { ref: r.ref, colour: r.colour }, geometry: r.geom });
   }
   if (!S.buildings.length) {
