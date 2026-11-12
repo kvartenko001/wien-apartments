@@ -122,7 +122,7 @@ map.on('style.load', async () => {
     paint: { 'line-color': AMBER, 'line-width': 2.2 }, filter: ['in', ['get', 'district'], ['literal', []]] });
   map.addLayer({ id: 'district-label', type: 'symbol', source: 'districts', slot: 'top', maxzoom: 12.5,
     layout: { 'text-field': ['to-string', ['get', 'district']], 'text-size': 13, 'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'] },
-    paint: { 'text-color': '#8b9199', 'text-halo-color': '#000a', 'text-halo-width': 1 } });
+    paint: { 'text-color': '#8b9199', 'text-halo-color': 'rgba(0,0,0,0.65)', 'text-halo-width': 1 } });
 
   // линии транспорта (из нашей базы, данные OpenStreetMap)
   for (const mode of ['bus', 'tram', 'sbahn', 'subway']) {
