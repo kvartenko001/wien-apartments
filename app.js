@@ -196,6 +196,17 @@ map.on('style.load', async () => {
       paint: { 'text-color': c.color, 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
   }
 
+  // маршрут из калькулятора дороги
+  map.addSource('route', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'route-casing', type: 'line', source: 'route', slot: 'top', filter: ['!=', ['get', 'kind'], 'walk'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#000', 'line-width': 9, 'line-opacity': 0.55 } });
+  map.addLayer({ id: 'route-line', type: 'line', source: 'route', slot: 'top', filter: ['!=', ['get', 'kind'], 'walk'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 5.5 } });
+  map.addLayer({ id: 'route-walk', type: 'line', source: 'route', slot: 'top', filter: ['==', ['get', 'kind'], 'walk'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#e8eaed', 'line-width': 3, 'line-dasharray': [0.1, 1.8] } });
+  map.addLayer({ id: 'route-stops', type: 'circle', source: 'route', slot: 'top', filter: ['==', ['get', 'kind'], 'stop'],
+    paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 3 } });
+
   // наши точки
   map.addSource('poi', { type: 'geojson', data: fc([]) });
   map.addLayer({ id: 'poi-dot', type: 'circle', source: 'poi', slot: 'top',
@@ -413,7 +424,7 @@ function select(id) {
   pushMapData();
 }
 function closeDetail() {
-  S.selected = null; stopOrbit();
+  S.selected = null; stopOrbit(); clearRoute();
   $('detail').hidden = true; $('cam').hidden = true;
   document.body.classList.remove('has-detail');
   $('sheet').classList.remove('min');
@@ -462,7 +473,124 @@ function renderDetail(id) {
     <div class="amen">${am}</div>
     ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
     ${b.pass ? '' : `<div class="why">Не проходит: ${b.why.join(' · ')}</div>`}
-    ${cards}`;
+    ${cards}
+    <div class="routes"><div class="rhead"><b>Дорога</b><span class="rwhen">${esc(routeWhenLabel())}</span></div>
+      <div id="routeList"></div>
+      <form class="rcustom" id="routeCustom"><input id="routeQ" placeholder="Свой адрес: хобби, друзья…" autocomplete="off"><button>→</button></form>
+      <div class="src">Маршруты: Wiener Linien / VOR (открытые данные)</div></div>`;
+  loadRoutes(b);
+}
+
+/* ---------- дорога: как WienMobil (маршрутизатор Wiener Linien через нашу функцию) ---------- */
+const CENTER = { id: 'center', label: 'Центр · Stephansplatz', owner: 'both', lng: 16.37241, lat: 48.20849 };
+const U_COL = { U1: '#e20613', U2: '#a862a4', U3: '#ef7c00', U4: '#009540', U5: '#3cc8c0', U6: '#9d6930' };
+const K_COL = { sbahn: '#1a8ccc', tram: '#e05a4f', bus: '#3b6fd8', wlb: '#0f6e8c', train: '#8b5cf6', walk: '#9aa1aa' };
+const legColor = l => l.kind === 'subway' ? (U_COL[l.line] || '#e20613') : (K_COL[l.kind] || '#888');
+const KIND_ICON = { walk: '🚶', subway: '', sbahn: '', tram: '🚋', bus: '🚌', wlb: '🚈', train: '🚆' };
+S.routes = {};      // кэш: `${building}|${dest}` → ответ
+S.routeOpen = null; // какой пункт раскрыт
+
+/* типичное утро: ближайший вторник, выезд в 8:00 */
+function routeWhen() {
+  const d = new Date(); d.setDate(d.getDate() + ((2 - d.getDay() + 7) % 7 || 7));
+  const p = n => String(n).padStart(2, '0');
+  return { date: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`, time: '0800' };
+}
+function routeWhenLabel() { return 'будний день, выезд 8:00'; }
+
+function chip(l) {
+  if (l.kind === 'walk') return `<span class="lchip walk">🚶${l.min}</span>`;
+  if (l.kind === 'subway') return `<span class="lchip" style="background:${legColor(l)}">${esc(l.line)}</span>`;
+  if (l.kind === 'sbahn') return `<span class="lchip" style="background:${K_COL.sbahn}">${esc(l.line || 'S')}</span>`;
+  return `<span class="lchip" style="background:${legColor(l)}">${KIND_ICON[l.kind] || ''}${esc(l.line)}</span>`;
+}
+function tripChips(t) { return t.legs.filter(l => l.kind !== 'walk' || l.min >= 3).map(chip).join('<i class="arr">›</i>'); }
+function best(r) { return r && r.trips && r.trips.length ? r.trips.reduce((a, b) => b.duration < a.duration ? b : a) : null; }
+
+async function fetchRoute(b, dest) {
+  const key = `${b.id}|${dest.id}`;
+  if (S.routes[key]) return S.routes[key];
+  try { const c = JSON.parse(sessionStorage.getItem('wa_r_' + key) || 'null'); if (c) return (S.routes[key] = c); } catch {}
+  const w = routeWhen();
+  const { data, error } = await sb.functions.invoke('route', { body: { from: [b.lng, b.lat], to: [dest.lng, dest.lat], date: w.date, time: w.time, n: 4 } });
+  if (error || !data || data.error) throw new Error((data && data.error) || (error && error.message) || 'нет ответа');
+  S.routes[key] = data;
+  try { sessionStorage.setItem('wa_r_' + key, JSON.stringify(data)); } catch {}
+  return data;
+}
+
+function routeDests() { return [...S.poi.map(p => ({ id: p.id, label: p.label, owner: p.owner, lng: p.lng, lat: p.lat })), CENTER, ...(S.customDests || [])]; }
+
+async function loadRoutes(b) {
+  const box = $('routeList'); if (!box) return;
+  const dests = routeDests();
+  box.innerHTML = dests.map(d => `<div class="rrow" data-dest="${esc(d.id)}"><div class="rtop"><span class="rlabel"><i class="dot o-${d.owner || 'both'}"></i>${esc(d.label)}</span><span class="rmin">…</span></div><div class="rchips"></div><div class="ralts" hidden></div></div>`).join('');
+  box.onclick = e => {
+    const alt = e.target.closest('.ralt'); const row = e.target.closest('.rrow'); if (!row) return;
+    const d = dests.find(x => String(x.id) === row.dataset.dest) || (S.customDests || []).find(x => String(x.id) === row.dataset.dest);
+    const r = S.routes[`${b.id}|${d.id}`]; if (!r) return;
+    if (alt) { drawTrip(r.trips[+alt.dataset.i], b, d); row.querySelectorAll('.ralt').forEach(a => a.classList.toggle('on', a === alt)); return; }
+    const open = S.routeOpen === row.dataset.dest ? null : row.dataset.dest;
+    S.routeOpen = open;
+    box.querySelectorAll('.rrow').forEach(x => { x.classList.toggle('open', x.dataset.dest === open); x.querySelector('.ralts').hidden = x.dataset.dest !== open; });
+    if (open) { renderAlts(row, r); const t = best(r); drawTrip(t, b, d); } else clearRoute();
+  };
+  const form = $('routeCustom');
+  form.onsubmit = async e => { e.preventDefault(); const q = $('routeQ').value.trim(); if (q) addCustomDest(b, q); };
+  await Promise.all(dests.map(async d => {
+    const row = box.querySelector(`.rrow[data-dest="${CSS.escape(String(d.id))}"]`);
+    try {
+      const r = await fetchRoute(b, d); const t = best(r);
+      if (S.selected !== b.id) return;
+      if (!t) { row.querySelector('.rmin').textContent = 'нет маршрута'; return; }
+      row.querySelector('.rmin').innerHTML = `<b>${t.duration}</b> мин`;
+      row.querySelector('.rchips').innerHTML = tripChips(t) +
+        `<span class="rmeta">${t.interchanges ? t.interchanges + ' пересад.' : 'без пересадок'} · пешком ${t.walk} мин</span>`;
+    } catch (err) {
+      row.querySelector('.rmin').textContent = '—';
+      row.querySelector('.rchips').innerHTML = `<span class="rmeta">не получилось: ${esc(err.message)}</span>`;
+    }
+  }));
+}
+
+function renderAlts(row, r) {
+  const trips = [...r.trips].sort((a, b) => a.duration - b.duration);
+  r.trips = trips;
+  row.querySelector('.ralts').innerHTML = trips.map((t, i) => `
+    <div class="ralt${i === 0 ? ' on' : ''}" data-i="${i}">
+      <div class="atop"><b>${t.dep}–${t.arr}</b><span>${t.duration} мин · ${t.interchanges} пересад. · 🚶${t.walk}</span></div>
+      <ol class="legs">${t.legs.map(l => l.kind === 'walk'
+        ? `<li class="walk">🚶 пешком ${l.min} мин${l.to ? ' → ' + esc(l.to) : ''}</li>`
+        : `<li>${chip(l)} <span>${esc(l.from)} → ${esc(l.to)}</span><em>${l.dep}–${l.arr}${l.stops ? ' · ' + l.stops + ' ост.' : ''}${l.dest ? ' · напр. ' + esc(l.dest) : ''}</em></li>`).join('')}</ol>
+    </div>`).join('');
+}
+
+function drawTrip(t, b, d) {
+  if (!t || !map.getSource('route')) return;
+  const feats = [];
+  for (const l of t.legs) {
+    if (l.path && l.path.length > 1) feats.push({ type: 'Feature', properties: { kind: l.kind, color: legColor(l) }, geometry: { type: 'LineString', coordinates: l.path } });
+    if (l.kind !== 'walk' && l.path && l.path.length) for (const p of [l.path[0], l.path[l.path.length - 1]])
+      feats.push({ type: 'Feature', properties: { kind: 'stop', color: legColor(l) }, geometry: { type: 'Point', coordinates: p } });
+  }
+  map.getSource('route').setData(fc(feats));
+  stopOrbit();
+  const bb = new mapboxgl.LngLatBounds([b.lng, b.lat], [b.lng, b.lat]); bb.extend([d.lng, d.lat]);
+  for (const f of feats) (f.geometry.type === 'Point' ? [f.geometry.coordinates] : f.geometry.coordinates).forEach(c => bb.extend(c));
+  map.fitBounds(bb, { padding: Object.fromEntries(Object.entries(detailPad()).map(([k, v]) => [k, v + 40])), pitch: 35, bearing: 0, duration: 1400, maxZoom: 15 });
+}
+function clearRoute() { S.routeOpen = null; map.getSource('route')?.setData(fc([])); }
+
+async function addCustomDest(b, q) {
+  try {
+    const u = `https://api.mapbox.com/search/geocode/v6/forward?q=${encodeURIComponent(q)}&proximity=16.3738,48.2082&bbox=16.18,48.11,16.58,48.33&language=de&limit=1&access_token=${CFG.MAPBOX_TOKEN}`;
+    const r = await (await fetch(u)).json(); const f = r.features && r.features[0];
+    if (!f) { toast('Адрес не нашёлся в Вене'); return; }
+    const [lng, lat] = f.geometry.coordinates;
+    const label = f.properties.name || q;
+    S.customDests = [...(S.customDests || []).filter(x => x.label !== label), { id: 'c' + Date.now(), label, owner: 'both', lng, lat }].slice(-4);
+    loadRoutes(b);
+  } catch { toast('Поиск адреса не ответил'); }
 }
 
 /* ---------- камера ---------- */
