@@ -60,6 +60,7 @@ const map = new mapboxgl.Map({
   center: [16.385, 48.195], zoom: 11.2, pitch: 0, bearing: 0,
   maxBounds: [[16.05, 48.05], [16.7, 48.36]]
 });
+window.__map = map; // для отладки
 map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'bottom-right');
 map.setPadding(basePad());
 
