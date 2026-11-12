@@ -8,6 +8,7 @@ const AMBER = '#ffb300';
 const GREY = '#6b7280';
 const BUILDINGS_TARGET = { featuresetId: 'buildings', importId: 'basemap' };
 const DESKTOP = () => innerWidth >= 900;
+const NOISE_WMS = 'https://inspire.lfrz.gv.at/000804/wms';
 
 /* ---------- темы ---------- */
 const THEMES = {
@@ -131,6 +132,17 @@ map.on('style.load', async () => {
       layout: { 'symbol-placement': 'line', 'symbol-spacing': 320, 'text-field': ['get', 'ref'], 'text-size': 10.5,
                 'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'], 'text-keep-upright': true },
       paint: { 'text-color': '#fff', 'text-halo-color': mode === 'bus' ? '#2b4a8a' : '#000', 'text-halo-width': 1.6 } });
+  }
+
+  // ШУМ — стратегические шумовые карты Австрии 2022 (WMS, Datenquelle: www.laerminfo.at)
+  for (const [key, period] of [['strasse', '24H'], ['strasse', 'NACHT'], ['schiene', '24H'], ['schiene', 'NACHT'], ['flug', '24H'], ['flug', 'NACHT']]) {
+    const layer = { strasse: `2022_STRASSE_${period}_ZONEN_OE`, schiene: `2022_SCHIENE_${period}_ZONEN_OE`, flug: `2022_FLUGHAEFEN_${period}_ZONEN_OE` }[key];
+    const id = `noise-${key}-${period === '24H' ? 'day' : 'night'}`;
+    map.addSource(id, { type: 'raster', tileSize: 256, maxzoom: 18,
+      attribution: '<a href="https://www.laerminfo.at" target="_blank">Datenquelle: www.laerminfo.at</a>',
+      tiles: [`${NOISE_WMS}?service=WMS&version=1.3.0&request=GetMap&layers=${layer}&styles=&crs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256&format=image/png&transparent=true`] });
+    map.addLayer({ id, type: 'raster', source: id, slot: 'middle', layout: { visibility: 'none' },
+      paint: { 'raster-opacity': 0.62, 'raster-fade-duration': 150, 'raster-emissive-strength': 1 } });
   }
 
   // остановки и станции (Mapbox Streets)
@@ -470,10 +482,21 @@ function syncLayerToggles() {
   map.setConfigProperty('basemap', 'show3dObjects', $('l3d').checked);
   map.setConfigProperty('basemap', 'showPointOfInterestLabels', $('lPoiLabels').checked);
   map.setConfigProperty('basemap', 'colorGreenspace', $('lGreen').checked ? GREEN_ON : THEMES[S.theme].colorGreenspace);
-  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen'].map(k => [k, $(k).checked]))));
+  const per = $('noiseNight').checked ? 'night' : 'day';
+  for (const k of ['strasse', 'schiene', 'flug']) for (const p of ['day', 'night'])
+    vis([`noise-${k}-${p}`], $('n_' + k).checked && p === per);
+  const any = ['strasse', 'schiene', 'flug'].find(k => $('n_' + k).checked);
+  const lg = $('noiseLegend');
+  if (any) {
+    const layer = { strasse: 'STRASSE', schiene: 'SCHIENE', flug: 'FLUGHAEFEN' }[any];
+    lg.src = `${NOISE_WMS}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&sld_version=1.1.0&layer=2022_${layer}_${per === 'day' ? '24H' : 'NACHT'}_ZONEN_OE`;
+    lg.hidden = false;
+  } else lg.hidden = true;
+  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_flug', 'noiseNight'].map(k => [k, $(k).checked]))));
 }
 try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of Object.entries(saved)) if ($(k)) $(k).checked = v; } catch {}
-[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen'].forEach(id => $(id).onchange = syncLayerToggles);
+[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_flug', 'noiseNight'].forEach(id => $(id).onchange = syncLayerToggles);
+$('noiseDay').onchange = syncLayerToggles;
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 
 /* ---------- расчёт ---------- */

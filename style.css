@@ -159,3 +159,10 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .sw-t{height:4px;background:#e05a4f;border-radius:2px}
 .sw-b{height:3px;background:#7aa2f7;border-radius:2px}
 .sw-g{background:#2f6b3f;border-radius:4px}
+
+.noise-seg{margin:0;padding:2px;gap:2px;text-transform:none;letter-spacing:0;font-weight:500}
+.noise-seg label{display:flex;align-items:center;gap:4px;padding:2px 8px;font-size:11px;color:var(--dim);cursor:pointer}
+.noise-seg input{accent-color:var(--amber);margin:0}
+.noise-legend{display:block;max-width:100%;margin:8px 0 2px;background:#fff;border-radius:8px;padding:6px}
+.src{font-size:11px;color:var(--faint);margin:6px 0 4px;line-height:1.5}
+.src a{color:var(--dim)}
