@@ -9,6 +9,8 @@ const GREY = '#6b7280';
 const BUILDINGS_TARGET = { featuresetId: 'buildings', importId: 'basemap' };
 const DESKTOP = () => innerWidth >= 900;
 const NOISE_WMS = 'https://inspire.lfrz.gv.at/000804/wms';
+const NOISE_LAYER = { strasse: 'STRASSE', schiene: 'SCHIENE', industrie: 'IPPC', flug: 'FLUGHAEFEN' };
+const NOISE_KEYS = Object.keys(NOISE_LAYER);
 
 /* ---------- темы ---------- */
 const THEMES = {
@@ -140,14 +142,17 @@ map.on('style.load', async () => {
   }
 
   // ШУМ — стратегические шумовые карты Австрии 2022 (WMS, Datenquelle: www.laerminfo.at)
-  for (const [key, period] of [['strasse', '24H'], ['strasse', 'NACHT'], ['schiene', '24H'], ['schiene', 'NACHT'], ['flug', '24H'], ['flug', 'NACHT']]) {
-    const layer = { strasse: `2022_STRASSE_${period}_ZONEN_OE`, schiene: `2022_SCHIENE_${period}_ZONEN_OE`, flug: `2022_FLUGHAEFEN_${period}_ZONEN_OE` }[key];
+  // Сервер на мелком масштабе (весь город) рисует не зоны, а просто линии дорог (а ж/д — чёрным, на тёмной карте не видно).
+  // Поэтому каждую плитку 256 px просим в 1024 px: сервер считает масштаб в 4 раза крупнее и отдаёт настоящие зоны в дБ.
+  for (const key of ['strasse', 'schiene', 'industrie', 'flug']) for (const period of ['24H', 'NACHT']) {
+    const layer = `2022_${NOISE_LAYER[key]}_${period}_ZONEN_OE`;
     const id = `noise-${key}-${period === '24H' ? 'day' : 'night'}`;
-    map.addSource(id, { type: 'raster', tileSize: 256, maxzoom: 18,
+    map.addSource(id, { type: 'raster', tileSize: 256, minzoom: 10, maxzoom: 17,
       attribution: '<a href="https://www.laerminfo.at" target="_blank">Datenquelle: www.laerminfo.at</a>',
-      tiles: [`${NOISE_WMS}?service=WMS&version=1.3.0&request=GetMap&layers=${layer}&styles=&crs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256&format=image/png&transparent=true`] });
-    map.addLayer({ id, type: 'raster', source: id, slot: 'middle', layout: { visibility: 'none' },
-      paint: { 'raster-opacity': 0.62, 'raster-fade-duration': 150, 'raster-emissive-strength': 1 } });
+      tiles: [`${NOISE_WMS}?service=WMS&version=1.3.0&request=GetMap&layers=${layer}&styles=&crs=EPSG:3857&bbox={bbox-epsg-3857}&width=1024&height=1024&format=image/png&transparent=true`] });
+    map.addLayer({ id, type: 'raster', source: id, slot: 'middle', minzoom: 10.5, layout: { visibility: 'none' },
+      paint: { 'raster-opacity': 0.78, 'raster-fade-duration': 150, 'raster-emissive-strength': 1,
+               'raster-brightness-min': 0.18, 'raster-saturation': 0.25, 'raster-resampling': 'linear' } });
   }
 
   // СТРОЯЩИЕСЯ ЛИНИИ: U5, новая U2 — тусклым пунктиром, со сроками
@@ -471,6 +476,7 @@ function renderDetail(id) {
       <div class="fact"><b>${b.hwb_class || (b.fgee ? 'fGEE ' + b.fgee : '—')}</b><span>энергия</span></div>
     </div>
     <div class="amen">${am}</div>
+    <div class="noisebox" id="noiseBox"><b>Шум у дома</b><span class="rmeta">считаю…</span></div>
     ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
     ${b.pass ? '' : `<div class="why">Не проходит: ${b.why.join(' · ')}</div>`}
     ${cards}
@@ -479,6 +485,7 @@ function renderDetail(id) {
       <form class="rcustom" id="routeCustom"><input id="routeQ" placeholder="Свой адрес: хобби, друзья…" autocomplete="off"><button>→</button></form>
       <div class="src">Маршруты: Wiener Linien / VOR (открытые данные)</div></div>`;
   loadRoutes(b);
+  loadNoise(b);
 }
 
 /* ---------- дорога: как WienMobil (маршрутизатор Wiener Linien через нашу функцию) ---------- */
@@ -593,6 +600,38 @@ async function addCustomDest(b, q) {
   } catch { toast('Поиск адреса не ответил'); }
 }
 
+/* ---------- шум у дома: зоны 2022 вокруг контура ---------- */
+S.noise = {};
+function fpBbox(b) {
+  const pts = geomParts(b.footprint).flatMap(p => p[0]);
+  if (!pts.length) return [b.lng - 0.0002, b.lat - 0.00013, b.lng + 0.0002, b.lat + 0.00013];
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+const NOISE_NAMES = { strasse: 'улица', schiene: 'ж/д и трамвай', industrie: 'завод', flug: 'самолёты' };
+const dbClass = v => v >= 70 ? 'n-hi' : v >= 60 ? 'n-mid' : 'n-lo';
+async function loadNoise(b) {
+  const box = $('noiseBox'); if (!box) return;
+  try {
+    let r = S.noise[b.id];
+    if (!r) {
+      const { data, error } = await sb.functions.invoke('route', { body: { bbox: fpBbox(b) } });
+      if (error || !data || data.error) throw new Error((data && data.error) || (error && error.message));
+      r = S.noise[b.id] = data.noise;
+    }
+    if (S.selected !== b.id) return;
+    const rows = Object.entries(NOISE_NAMES).map(([k, name]) => {
+      const d = r[k]?.lden, n = r[k]?.lnight;
+      if (!d && !n) return '';
+      const f = x => x ? (x.max >= 75 ? '75+' : `${x.max}–${x.max + 4}`) : '<45';
+      return `<div class="nrow"><span>${name}</span><span class="${dbClass(d?.max || 0)}">днём ${d ? f(d) : '<55'} дБ</span><span class="${dbClass((n?.max || 0) + 10)}">ночью ${f(n)} дБ</span></div>`;
+    }).join('');
+    box.innerHTML = `<b>Шум у дома</b><span class="rmeta">самый громкий фасад · карты 2022</span>${rows || '<div class="nrow"><span>Тихо: ни один источник не даёт у фасада 55 дБ днём</span></div>'}`;
+  } catch (e) {
+    box.innerHTML = `<b>Шум у дома</b><span class="rmeta">не получилось: ${esc(e.message)}</span>`;
+  }
+}
+
 /* ---------- камера ---------- */
 function orbitStep() { if (!S.orbiting) return; map.setBearing((map.getBearing() + 0.14) % 360); requestAnimationFrame(orbitStep); }
 function startOrbit() { S.orbiting = true; $('orbitBtn').classList.add('on'); if (map.getPitch() < 30) map.easeTo({ pitch: 60, duration: 600 }); requestAnimationFrame(orbitStep); }
@@ -651,19 +690,18 @@ function syncLayerToggles() {
   map.setConfigProperty('basemap', 'showPointOfInterestLabels', $('lPoiLabels').checked);
   map.setConfigProperty('basemap', 'colorGreenspace', $('lGreen').checked ? GREEN_ON : THEMES[S.theme].colorGreenspace);
   const per = $('noiseNight').checked ? 'night' : 'day';
-  for (const k of ['strasse', 'schiene', 'flug']) for (const p of ['day', 'night'])
+  for (const k of NOISE_KEYS) for (const p of ['day', 'night'])
     vis([`noise-${k}-${p}`], $('n_' + k).checked && p === per);
-  const any = ['strasse', 'schiene', 'flug'].find(k => $('n_' + k).checked);
+  const any = NOISE_KEYS.find(k => $('n_' + k).checked);
   const lg = $('noiseLegend');
   if (any) {
-    const layer = { strasse: 'STRASSE', schiene: 'SCHIENE', flug: 'FLUGHAEFEN' }[any];
-    lg.src = `${NOISE_WMS}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&sld_version=1.1.0&layer=2022_${layer}_${per === 'day' ? '24H' : 'NACHT'}_ZONEN_OE`;
+    lg.src = `${NOISE_WMS}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&sld_version=1.1.0&layer=2022_STRASSE_${per === 'day' ? '24H' : 'NACHT'}_ZONEN_OE`;
     lg.hidden = false;
   } else lg.hidden = true;
-  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames'].map(k => [k, $(k).checked]))));
+  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames'].map(k => [k, $(k).checked]))));
 }
 try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of Object.entries(saved)) if ($(k)) $(k).checked = v; } catch {}
-[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames'].forEach(id => $(id).onchange = syncLayerToggles);
+[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames'].forEach(id => $(id).onchange = syncLayerToggles);
 $('noiseDay').onchange = syncLayerToggles;
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 

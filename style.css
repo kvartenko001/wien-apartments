@@ -198,3 +198,7 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .rcustom{display:flex;gap:6px;margin-top:9px}
 .rcustom input{flex:1;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;color:var(--ink);font:inherit;font-size:13px}
 .rcustom button{background:var(--amber);border:0;border-radius:10px;padding:0 14px;font-weight:700;cursor:pointer}
+.noisebox{margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:9px 10px;font-size:12px}
+.noisebox b{font-size:13px;margin-right:6px}
+.nrow{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:6px;padding-top:6px;color:var(--dim)}
+.n-lo{color:#86efac}.n-mid{color:#fbbf24}.n-hi{color:#f87171}
