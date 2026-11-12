@@ -11,16 +11,16 @@ const DESKTOP = () => innerWidth >= 900;
 
 /* ---------- темы ---------- */
 const THEMES = {
-  a: { theme: 'monochrome', lightPreset: 'dusk',
+  a: { theme: 'default', lightPreset: 'dusk',
        colorLand: '#1c1f24', colorWater: '#121a24', colorRoads: '#2e333a', colorMotorways: '#3a4049',
        colorBuildings: '#3a3f46', colorPlaceLabels: '#8b9199', colorRoadLabels: '#5f666e', colorGreenspace: '#22262b' },
-  b: { theme: 'faded', lightPreset: 'night',
+  b: { theme: 'default', lightPreset: 'night',
        colorLand: '#0d1628', colorWater: '#060d1a', colorRoads: '#1e2a40', colorMotorways: '#2a3a56',
        colorBuildings: '#22314d', colorPlaceLabels: '#7f8ca3', colorRoadLabels: '#4c576b', colorGreenspace: '#0f1b30' }
 };
 const GREEN_ON = '#2f6b3f';
 const COMMON = {
-  colorBuildingSelect: AMBER, colorBuildingHighlight: '#ffcc4d',
+  colorBuildingSelect: AMBER, colorBuildingHighlight: '#5b616b',
   showPointOfInterestLabels: false, showTransitLabels: false, show3dObjects: true
 };
 
@@ -165,14 +165,14 @@ map.on('style.load', async () => {
   const col = ['case', ['get', 'pass'], AMBER, GREY];
   map.addSource('fp', { type: 'geojson', data: fc([]) });
   map.addLayer({ id: 'fp-fill', type: 'fill', source: 'fp', slot: 'top',
-    paint: { 'fill-color': col, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 11, 1, 15, 0.9] } });
+    paint: { 'fill-color': col, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 11, 1, 14, 0.9, 14.8, 0] } });
   map.addLayer({ id: 'fp-glow', type: 'line', source: 'fp', slot: 'top',
-    paint: { 'line-color': col, 'line-blur': 4, 'line-opacity': 0.55, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 14] } });
+    paint: { 'line-color': col, 'line-blur': 4, 'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.55, 14, 0.5, 14.8, 0], 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 14.8, 12] } });
   map.addLayer({ id: 'fp-3d', type: 'fill-extrusion', source: 'fp', slot: 'top', minzoom: 14,
     paint: { 'fill-extrusion-color': ['case', ['get', 'sel'], '#ffc940', col], 'fill-extrusion-height': ['+', ['get', 'h'], 0.6],
              'fill-extrusion-base': 0, 'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 14.6, 0.96],
              'fill-extrusion-emissive-strength': 0.75 } });
-  map.addLayer({ id: 'fp-sel', type: 'line', source: 'fp', slot: 'top', filter: ['get', 'sel'],
+  map.addLayer({ id: 'fp-sel', type: 'line', source: 'fp', slot: 'top', filter: ['get', 'sel'], maxzoom: 14.8,
     paint: { 'line-color': '#fff', 'line-width': 2 } });
 
   // издалека дом — пара пикселей: мягкое свечение в центре, чтобы его было видно
@@ -197,18 +197,18 @@ map.on('style.load', async () => {
 let painted = [];
 function paintBasemap() {
   if (!map.isStyleLoaded() || !map.getLayer('fp-3d')) return;
-  for (const f of painted) { try { map.setFeatureState(f, { select: false }); } catch {} }
+  for (const f of painted) { try { map.setFeatureState(f, { select: false, highlight: false }); } catch {} }
   painted = [];
   if (map.getZoom() < 14) return;
   const b = map.getBounds();
   for (const bd of S.buildings) {
-    if (!bd.pass || !bd.parts) continue;
+    if (!bd.parts || (!bd.pass && S.f.hideFail)) continue;
     for (const c of bd.parts) {
       if (!b.contains(c)) continue;
       const p = map.project(c);
       let fs = [];
-      try { fs = map.queryRenderedFeatures([[p.x - 2, p.y - 2], [p.x + 2, p.y + 2]], { target: BUILDINGS_TARGET }); } catch {}
-      for (const f of fs) { try { map.setFeatureState(f, { select: true }); painted.push(f); } catch {} }
+      try { fs = map.queryRenderedFeatures([[p.x - 3, p.y - 3], [p.x + 3, p.y + 3]], { target: BUILDINGS_TARGET }); } catch {}
+      for (const f of fs) { try { map.setFeatureState(f, bd.pass ? { select: true } : { highlight: true }); painted.push(f); } catch {} }
     }
   }
 }
