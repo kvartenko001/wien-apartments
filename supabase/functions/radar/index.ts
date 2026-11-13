@@ -132,9 +132,10 @@ function findDate(t: string): string | null {
   m = t.match(/\b(20[12]\d)[-_.](0[1-9]|1[0-2])(?:[-_.]\d{2})?\b/); if (m) return `${m[1]}-${m[2]}`;
   return null;
 }
-const BAD_IMG = /logo|favicon|icon|sprite|avatar|portrait|team|kontakt|contact|ansprechpartner|badge|siegel|zertifik|award|partner|sponsor|klimaaktiv-|placeholder|blank|pixel|loader|arrow|social|facebook|instagram|linkedin|youtube|map-?marker|googlemap|cookie|qr-?code|newsletter|signature|unterschrift|banner-ad/i;
+const BAD_IMG = /logo|favicon|icon|sprite|avatar|portrait|team|kontakt|contact|ansprechpartner|badge|siegel|zertifik|award|\/partners?\/|partner-?logo|sponsor|klimaaktiv-|placeholder|blank|pixel|loader|arrow|social|facebook|instagram|linkedin|youtube|map-?marker|googlemap|cookie|qr-?code|newsletter|signature|unterschrift|banner-ad/i;
 const BAD_ALT = /logo|portrait|porträt|ansprechpartner|kontakt|team|geschäftsführ|mitarbeiter|unterschrift|icon/i;
 function kindOf(t: string) {
+  if (/zeitleiste|timeline|grafik|graphisch|zeichnung|infografik|diagramm/i.test(t)) return 'plan';
   if (/baustell|baufortschritt|bautagebuch|baudoku|rohbau|spatenstich|gleichenfeier|kran|aushub|baugrube|bauarbeit|webcam|construction|progress/i.test(t)) return 'build';
   if (/grundriss|lageplan|floor ?plan|schnitt|geschoss(?:plan)?|plan_/i.test(t)) return 'plan';
   if (/innen|interior|wohnzimmer|wohn-|küche|kueche|bad(?:ezimmer)?|schlafzimmer|essbereich|couch|loggia-innen|wohnraum/i.test(t)) return 'inside';
@@ -173,7 +174,7 @@ function buildLinks(html: string, base: string) {
   const out = new Set<string>(); const host = new URL(base).host;
   for (const m of html.matchAll(/<a\b[^>]*href="([^"#]+)"[^>]*>([\s\S]{0,200}?)<\/a>/gi)) {
     const txt = (m[2].replace(/<[^>]+>/g, ' ') + ' ' + m[1]).toLowerCase();
-    if (!/baufortschritt|baustell|bautagebuch|baudoku|webcam|galerie|gallery|bilder|impressionen|aktuelles/.test(txt)) continue;
+    if (!/baufortschritt|baustell|bautagebuch|baudoku|webcam|galerie|gallery|bilder|impressionen/.test(txt)) continue;
     const u = absU(m[1], base); if (u && new URL(u).host === host && !/\.(pdf|jpe?g|png|zip)$/i.test(u)) out.add(u.split('#')[0]);
   }
   return [...out].sort((a, b) => (/baufort|baustell|bautage|baudoku|webcam/i.test(b) ? 1 : 0) - (/baufort|baustell|bautage|baudoku|webcam/i.test(a) ? 1 : 0)).slice(0, 3);
@@ -193,7 +194,7 @@ async function projectPhotos(p: any) {
         for (const i of pageImages(html, u)) {
           const t = `${i.cap || ''} ${i.url}`;
           let kind = isBuildPage ? 'build' : kindOf(t);
-          if (kind !== 'build' && /baufort|baustell|bautage/i.test(i.ctx)) kind = kindOf(t + ' ' + i.ctx);
+          if (kind !== 'build' && kind !== 'plan' && /baufort|baustell|bautage/i.test(i.ctx)) kind = kindOf(t + ' ' + i.ctx);
           all.push({ url: i.url, w: i.w || sizeOf(i.url) || null, cap: i.cap === 'og' ? null : i.cap, src: 'official', kind,
             date: kind === 'build' ? (findDate(i.cap || '') || findDate(i.url) || findDate(i.ctx)) : null });
         }
