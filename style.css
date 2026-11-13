@@ -262,3 +262,27 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .sw-mk{background:#5eead4;border-radius:50%}.sw-shop{background:#facc15;border-radius:50%}.sw-ph{background:#34d399;border-radius:50%}
 .sw-post{background:#fbbf24;border-radius:50%}.sw-lock{background:#c084fc;border-radius:50%}.sw-sun{background:linear-gradient(90deg,#fb923c,#93c5fd);border-radius:50%}
 .brandchips .chip{padding:3px 9px;font-size:11px;margin:2px}
+
+/* панель фильтров ленты и просмотр объявления */
+.fbtn{background:var(--amber-soft);border:1px solid var(--amber);color:var(--amber);border-radius:10px;padding:6px 10px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.fbtn b{background:var(--amber);color:#1a1205;border-radius:99px;padding:0 6px;margin-left:4px}
+.fbtn b:empty{display:none}
+.fpanel{position:fixed;z-index:9;top:64px;right:8px;width:340px;max-width:calc(100vw - 16px);max-height:calc(100vh - 80px);overflow-y:auto;
+  background:var(--panel-solid);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.45)}
+.fp-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.fpanel .close,.lview .close{background:none;border:0;color:var(--dim);font-size:22px;cursor:pointer;line-height:1}
+.lview .close{position:absolute;right:12px;top:8px}
+.two-inp{display:flex;gap:6px}.two-inp input,.fpanel input[type=number]{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:7px 9px;color:var(--ink);font:inherit}
+.fp-btns{display:flex;gap:6px;margin-top:10px}.fp-btns button{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px;font:inherit;font-size:12px;cursor:pointer}
+.fit{background:rgba(94,234,212,.15);color:#5eead4;border-radius:5px;padding:0 5px;font-size:10px;font-weight:600}
+.lv-btns{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.lvb{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:6px 10px;font:inherit;font-size:12px;text-decoration:none;cursor:pointer}
+.lvb.primary{background:var(--amber);color:#1a1205;border-color:var(--amber);font-weight:700}
+.gal{display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x mandatory;margin:8px -4px;padding-bottom:4px}
+.gal img{height:190px;border-radius:10px;scroll-snap-align:start;flex:none;object-fit:cover;max-width:300px;background:var(--panel-2)}
+.lv-title{font-weight:600;margin:6px 0}
+.lv-facts{margin-top:8px}
+.lv-desc{font-size:12.5px;color:var(--dim);line-height:1.5;margin-top:10px;max-height:260px;overflow-y:auto;border-top:1px solid var(--line);padding-top:8px}
+.lv-desc.sub{max-height:140px}
+.ours{color:var(--amber)}
+.sw-night{background:#f43f5e;border-radius:50%}

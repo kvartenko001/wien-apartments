@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.css" rel="stylesheet">
-<link href="style.css?v=1794560269" rel="stylesheet">
+<link href="style.css?v=1794561582" rel="stylesheet">
 </head>
 <body class="theme-a">
 
@@ -37,7 +37,7 @@
   <div class="grab" id="grab"></div>
   <nav class="tabs" id="tabs">
     <button data-tab="list" class="on">Дома <b id="cnt">0</b></button>
-    <button data-tab="filters">Фильтры</button>
+    <button data-tab="filters">Требования</button>
     <button data-tab="layers">Слои</button>
     <button data-tab="calc">Расчёт</button>
   </nav>
@@ -46,8 +46,8 @@
     <div class="seg small listseg" id="listSeg"><button data-v="ours" class="on">Наши дома</button><button data-v="feed">Лента <b id="feedCnt"></b></button><button data-v="fav">★ Избранное <b id="favCnt"></b></button></div>
     <div id="feedBox" hidden>
       <div class="feedbar">
+        <button class="fbtn" id="feedFiltBtn">⚙ Фильтры ленты <b id="feedFiltN"></b></button>
         <select id="feedSort"><option value="new">сначала новые</option><option value="cheap">сначала дешёвые</option><option value="m2">дешевле за м²</option></select>
-        <label class="mini-check"><input type="checkbox" id="feedOurs"> только наши дома</label>
       </div>
       <div class="hint" id="feedHint"></div>
       <div id="feed"></div>
@@ -64,6 +64,7 @@
   </div>
 
   <div class="pane" id="pane-filters">
+    <p class="hint">Наши общие требования к квартире. По ним дома на карте горят янтарным или серым, а объявления в ленте помечаются «подходит». Быстрые фильтры для просмотра — в самой ленте.</p>
     <div class="fgroup">
       <div class="frow"><span>Потолок в месяц</span><b class="val" id="vBudget"></b></div>
       <input type="range" id="fBudget" min="800" max="3000" step="50">
@@ -114,12 +115,12 @@
     <label class="check"><input type="checkbox" id="lShops"> <span class="sw sw-shop"></span> Супермаркеты</label>
     <div class="chips brandchips" id="shopBrands"></div>
     <label class="check"><input type="checkbox" id="lPharm"> <span class="sw sw-ph"></span> Аптеки</label>
-    <div class="src sub">Ночные дежурства меняются каждый день — дежурную аптеку покажет <a href="https://www.apothekerkammer.at/apothekensuche" target="_blank" rel="noopener">apothekerkammer.at</a> или телефон 1455.</div>
+    <label class="check"><input type="checkbox" id="lNight"> <span class="sw sw-night"></span> Дежурные аптеки сегодня ночью <small id="nightInfo"></small></label>
     <label class="check"><input type="checkbox" id="lPost"> <span class="sw sw-post"></span> Почта: Postfiliale и Post Partner</label>
     <label class="check"><input type="checkbox" id="lLocker"> <span class="sw sw-lock"></span> Пункты выдачи и посылочные боксы</label>
     <div class="chips brandchips" id="lockerBrands"></div>
     <label class="check"><input type="checkbox" id="lSun"> <span class="sw sw-sun"></span> Солнце: стороны света, восход и закат у дома</label>
-    <div class="src">Магазины, аптеки, почта, боксы — © участники OpenStreetMap (ODbL), данные на 13.11.2026; боксы Post/DHL отмечены в OSM не все.</div>
+    <div class="src">Магазины, аптеки, myflexbox/Amazon — © участники OpenStreetMap (ODbL). Почта, Poststationen и Hermes-шопы — официальный список Österreichische Post. Дежурные аптеки — Österreichische Apothekerkammer, обновляются дважды в день.</div>
     <div class="ftitle" style="margin-top:16px">Город</div>
     <label class="check"><input type="checkbox" id="lGreen"> <span class="sw sw-g"></span> Зелёные зоны</label>
     <label class="check"><input type="checkbox" id="lDistricts" checked> Границы районов</label>
@@ -160,6 +161,27 @@
   <div class="ac-note" id="acNote"></div>
   <div class="ac-btns"><button id="acOk" class="primary">Добавить</button><button id="acPoint">Только точкой</button><button id="acCancel">Отмена</button></div>
 </div>
+<aside class="fpanel" id="feedPanel" hidden>
+  <div class="fp-head"><b>Фильтры ленты</b><button class="close" id="feedPanelClose">×</button></div>
+  <div class="fgroup"><div class="ftitle">Цена в месяц, €</div>
+    <div class="two-inp"><input type="number" id="ffPmin" placeholder="от" step="50"><input type="number" id="ffPmax" placeholder="до" step="50"></div>
+    <div class="presets" id="ffPpre"><button data-v="1000">до 1000</button><button data-v="1300">до 1300</button><button data-v="1500">до 1500</button><button data-v="2000">до 2000</button></div></div>
+  <div class="fgroup two"><label>м² от <input type="number" id="ffArea" step="5"></label>
+    <label>Комнат от <select id="ffRooms"><option value="0">любое</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label></div>
+  <div class="fgroup"><div class="ftitle">Районы <small>(пусто = все)</small></div><div class="chips dense" id="ffDistricts"></div></div>
+  <div class="fgroup"><div class="ftitle">Источник</div><div class="chips" id="ffSources"></div></div>
+  <label class="check"><input type="checkbox" id="ffNew"> Только новые (за 2 дня)</label>
+  <label class="check"><input type="checkbox" id="ffDrop"> Цена снижалась</label>
+  <label class="check"><input type="checkbox" id="ffPrivate"> Только от частника (без маклера)</label>
+  <label class="check"><input type="checkbox" id="ffOurs"> Только в наших домах</label>
+  <label class="check"><input type="checkbox" id="ffLift"> Лифт упомянут <small>(в заголовке или наш дом с лифтом)</small></label>
+  <div class="fp-btns"><button id="ffReq">Как в требованиях</button><button id="ffReset">Сбросить всё</button></div>
+  <div class="src" id="ffCount"></div>
+</aside>
+<aside class="detail lview" id="lview" hidden>
+  <button class="close" id="lviewClose">×</button>
+  <div id="lviewBody"></div>
+</aside>
 <aside class="detail" id="detail" hidden>
   <button class="close" id="detailClose">×</button>
   <div id="detailBody"></div>
@@ -180,7 +202,7 @@
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="config.js?v=1794560269"></script>
-<script src="app.js?v=1794560269"></script>
+<script src="config.js?v=1794561582"></script>
+<script src="app.js?v=1794561582"></script>
 </body>
 </html>

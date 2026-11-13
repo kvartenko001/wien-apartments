@@ -460,6 +460,7 @@ function select(id) {
   const b = S.buildings.find(x => x.id === id); if (!b) return;
   S.selected = id;
   stopOrbit();
+  $('lview').hidden = true; $('feedPanel').hidden = true;
   const h = +b.height_m || 20;
   const zoom = h > 120 ? 15.7 : h > 45 ? 16.3 : 16.9;
   renderDetail(id);
@@ -866,50 +867,156 @@ function feedCard(x) {
   return `<div class="fcard${isNew ? ' new' : ''}" data-id="${x.mid}">
     <div class="ftop"><b>${eur(x.price)}</b><span class="fm">${x.area_m2 ? Math.round(x.area_m2) + ' м²' : '? м²'} · ${x.rooms ? x.rooms + ' к.' : '—'}${x.area_m2 ? ' · ' + (x.price / x.area_m2).toFixed(1) + ' €/м²' : ''}</span>
       <span class="star${isFav(x) ? ' on' : ''}" data-id="${x.mid}">★</span></div>
-    <div class="ft">${esc((x.title || '').slice(0, 90))}</div>
+    <div class="ft">${fitsFilters(x) ? '<span class="fit">подходит</span> ' : ''}${esc((x.title || '').slice(0, 90))}</div>
     <div class="fmeta">${b ? `<span class="ours">${esc(b.name)}</span>` : ''}${esc([x.street, x.house_no].filter(Boolean).join(' ') || '')} ${x.zip || ''}
       · ${x.srcs.map(s => `<a href="${esc(x.urls[x.srcs.indexOf(s)] || x.url)}" target="_blank" rel="noopener">${s}</a>`).join(' ')}
       · ${isNew ? '<em class="newb">новое</em>' : days + ' дн.'}${drop ? ' · <em class="drop">цена ↓</em>' : ''}</div>
   </div>`;
 }
+// фильтры ленты — свои, быстрые; требования (вкладка «Требования») только помечают «подходит»
+const DEF_FF = () => ({ pmin: null, pmax: S.f.budget, area: S.f.area, rooms: S.f.rooms, d: new Set(S.f.districts), src: new Set(), isNew: false, drop: false, priv: false, ours: false, lift: false });
+S.ff = (() => { try { const o = JSON.parse(localGet('ff', 'null')); if (o) return { ...o, d: new Set(o.d), src: new Set(o.src) }; } catch {} return null; })();
+function saveFF() { localSet('ff', JSON.stringify({ ...S.ff, d: [...S.ff.d], src: [...S.ff.src] })); }
+const LIFT_RE = /\b(lift|aufzug|fahrstuhl|liftstock|personenaufzug)/i;
+function passFF(x) {
+  const f = S.ff;
+  if (f.pmin && (x.price || 0) < f.pmin) return false;
+  if (f.pmax && (!x.price || x.price > f.pmax)) return false;
+  if (f.area && x.area_m2 && x.area_m2 < f.area) return false;
+  if (f.rooms && x.rooms && x.rooms < f.rooms) return false;
+  if (f.d.size && !f.d.has(x.district)) return false;
+  if (f.src.size && !x.srcs.some(s => f.src.has(s))) return false;
+  if (f.isNew && Date.now() - new Date(x.first_seen) > 2 * 864e5) return false;
+  if (f.drop && !(x.price_history || []).some(h => h.to < h.from)) return false;
+  if (f.priv && x.is_private !== true) return false;
+  if (f.ours && !x.building_id) return false;
+  if (f.lift) { const b = x.building_id && S.buildings.find(y => y.id === x.building_id); if (!(b && b.has_lift) && !LIFT_RE.test(x.title || '')) return false; }
+  return true;
+}
+function ffCount() {
+  const f = S.ff, d = DEF_FF(); let n = 0;
+  if (f.pmin) n++; if (f.pmax) n++; if (f.area) n++; if (f.rooms) n++; if (f.d.size) n++; if (f.src.size) n++;
+  for (const k of ['isNew', 'drop', 'priv', 'ours', 'lift']) if (f[k]) n++;
+  return n;
+}
 function renderFeed() {
+  if (!S.ff) S.ff = DEF_FF();
   const all = S.mkGroups || [];
-  const fit = all.filter(fitsFilters);
   const favs = all.filter(isFav);
-  $('feedCnt').textContent = fit.length || '';
+  const view = all.filter(passFF);
+  $('feedCnt').textContent = view.length || '';
   $('favCnt').textContent = favs.length || '';
+  $('feedFiltN').textContent = ffCount() || '';
+  if ($('ffCount')) $('ffCount').textContent = `Показано ${view.length} из ${all.length} объявлений в базе (все 23 района, до 2200 €, от 38 м²).`;
   if (S.listView === 'ours') return;
-  let arr = S.listView === 'fav' ? favs : fit;
-  if (S.listView === 'feed' && $('feedOurs').checked) arr = arr.filter(x => x.building_id);
+  let arr = S.listView === 'fav' ? favs : view;
   const sort = $('feedSort').value;
   arr = [...arr].sort(sort === 'cheap' ? (a, b) => a.price - b.price : sort === 'm2' ? (a, b) => (a.price / (a.area_m2 || 99)) - (b.price / (b.area_m2 || 99))
     : (a, b) => new Date(b.first_seen) - new Date(a.first_seen));
   const lim = S.feedLim || 60;
-  $('feedHint').textContent = S.listView === 'fav' ? (arr.length ? '' : 'Пока пусто — жми ★ на объявлениях в ленте или в карточке дома.')
-    : `${fit.length} объявлений по фильтрам (потолок ${eur(S.f.budget)}, от ${S.f.rooms} комн., от ${S.f.area} м²${S.f.districts.size ? ', выбранные районы' : ''}). Районы сборщика: 2, 3, 4, 5, 10, 12, 22.`;
+  $('feedHint').textContent = S.listView === 'fav' ? (arr.length ? '' : 'Пока пусто — жми ★ на объявлениях в ленте или в карточке дома.') : `${view.length} объявлений. Зелёная полоска — новое, «подходит» — под ваши требования.`;
   $('feed').innerHTML = arr.slice(0, lim).map(feedCard).join('') + (arr.length > lim ? `<button class="more" id="feedMore">ещё ${Math.min(60, arr.length - lim)} из ${arr.length - lim}</button>` : '');
   const more = $('feedMore'); if (more) more.onclick = () => { S.feedLim = lim + 60; renderFeed(); };
 }
+/* панель фильтров ленты */
+function renderFFPanel() {
+  const f = S.ff;
+  $('ffPmin').value = f.pmin || ''; $('ffPmax').value = f.pmax || ''; $('ffArea').value = f.area || ''; $('ffRooms').value = f.rooms || 0;
+  $('ffDistricts').innerHTML = Array.from({ length: 23 }, (_, i) => i + 1).map(n => `<button class="chip${f.d.has(n) ? ' on' : ''}" data-d="${n}">${n}</button>`).join('');
+  $('ffSources').innerHTML = ['willhaben', 'immoscout'].map(sname => `<button class="chip${f.src.has(sname) ? ' on' : ''}" data-s="${sname}">${sname}</button>`).join('');
+  for (const [id, k] of [['ffNew', 'isNew'], ['ffDrop', 'drop'], ['ffPrivate', 'priv'], ['ffOurs', 'ours'], ['ffLift', 'lift']]) $(id).checked = !!f[k];
+}
+function ffChanged() { saveFF(); S.feedLim = 60; renderFeed(); pushMarket(); }
+$('feedFiltBtn').onclick = () => { if (!S.ff) S.ff = DEF_FF(); renderFFPanel(); $('feedPanel').hidden = !$('feedPanel').hidden; $('lview').hidden = true; };
+$('feedPanelClose').onclick = () => $('feedPanel').hidden = true;
+for (const [id, k] of [['ffPmin', 'pmin'], ['ffPmax', 'pmax'], ['ffArea', 'area'], ['ffRooms', 'rooms']])
+  $(id).oninput = () => { S.ff[k] = +$(id).value || null; ffChanged(); };
+for (const [id, k] of [['ffNew', 'isNew'], ['ffDrop', 'drop'], ['ffPrivate', 'priv'], ['ffOurs', 'ours'], ['ffLift', 'lift']])
+  $(id).onchange = () => { S.ff[k] = $(id).checked; ffChanged(); };
+$('ffPpre').onclick = e => { const v = e.target.dataset.v; if (!v) return; S.ff.pmax = +v; $('ffPmax').value = v; ffChanged(); };
+$('ffDistricts').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; const n = +c.dataset.d; S.ff.d.has(n) ? S.ff.d.delete(n) : S.ff.d.add(n); c.classList.toggle('on'); ffChanged(); };
+$('ffSources').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; const n = c.dataset.s; S.ff.src.has(n) ? S.ff.src.delete(n) : S.ff.src.add(n); c.classList.toggle('on'); ffChanged(); };
+$('ffReq').onclick = () => { S.ff = DEF_FF(); renderFFPanel(); ffChanged(); };
+$('ffReset').onclick = () => { S.ff = { ...DEF_FF(), pmax: null, area: null, rooms: null, d: new Set() }; renderFFPanel(); ffChanged(); };
+
+/* ---------- просмотр объявления внутри приложения ---------- */
+S.lcache = {};
+async function openListing(x) {
+  $('feedPanel').hidden = true;
+  $('detail').hidden = true;
+  const box = $('lviewBody'), b = x.building_id && S.buildings.find(y => y.id === x.building_id);
+  $('lview').hidden = false;
+  const head = `<div class="dname">${eur(x.price)} <span class="star${isFav(x) ? ' on' : ''}" data-id="${x.mid}">★</span></div>
+    <div class="daddr">${x.area_m2 ? Math.round(x.area_m2) + ' м²' : '? м²'} · ${x.rooms ? x.rooms + ' комн.' : '—'} · ${esc([x.street, x.house_no].filter(Boolean).join(' '))} ${x.zip || ''}${b ? ` · <span class="ours">${esc(b.name)}</span>` : ''}</div>
+    <div class="lv-btns">
+      ${x.srcs.map((sname, i) => `<a class="lvb" href="${esc(x.urls[i] || x.url)}" target="_blank" rel="noopener">${sname} ↗</a>`).join('')}
+      ${x.lat ? '<button class="lvb" id="lvMap">На карте</button>' : ''}
+      ${b ? '<button class="lvb primary" id="lvHouse">Открыть дом</button>' : (x.lat ? '<button class="lvb primary" id="lvTrack">＋ Отслеживать этот дом</button>' : '')}
+    </div>`;
+  box.innerHTML = head + '<p class="hint">Загружаю объявление…</p>';
+  bindLv(x, b);
+  let d = S.lcache[x.url];
+  try {
+    if (!d) { const r = await sb.functions.invoke('listing', { body: { url: x.url } }); if (r.error || r.data?.error) throw new Error(r.data?.error || r.error.message); d = S.lcache[x.url] = r.data; }
+  } catch (e) { box.innerHTML = head + `<p class="hint">Не получилось загрузить: ${esc(e.message)}. Открой на сайте.</p>`; bindLv(x, b); return; }
+  if (d.gone) { box.innerHTML = head + '<p class="why">Объявление уже снято с сайта.</p>'; bindLv(x, b); return; }
+  const imgs = (d.images || []).map(u => `<img src="${esc(u)}" loading="lazy" referrerpolicy="no-referrer">`).join('');
+  box.innerHTML = head + `
+    ${imgs ? `<div class="gal">${imgs}</div>` : ''}
+    <div class="lv-title">${esc(d.title || x.title || '')}</div>
+    ${d.lift === true ? '<div class="amen"><span>Лифт упомянут</span></div>' : ''}
+    ${(d.facts || []).length ? `<dl class="rows lv-facts">${d.facts.map(f => `<dt>${esc(f.k)}</dt><dd>${esc(f.v)}</dd>`).join('')}</dl>` : ''}
+    ${(d.equipment || []).length ? `<div class="amen">${d.equipment.map(e => `<span>${esc(e)}</span>`).join('')}</div>` : ''}
+    ${d.description ? `<div class="lv-desc">${esc(d.description).replace(/\n/g, '<br>')}</div>` : ''}
+    ${(d.extra || []).map(t => `<div class="lv-desc sub">${esc(t).replace(/\n/g, '<br>')}</div>`).join('')}
+    ${d.contact ? `<div class="src">Контакт: ${esc(d.contact)}</div>` : ''}`;
+  bindLv(x, b);
+}
+function bindLv(x, b) {
+  const st = $('lviewBody').querySelector('.star'); if (st) st.onclick = () => toggleFav(x.mid);
+  if ($('lvMap')) $('lvMap').onclick = () => { if (!$('lMarket').checked) { $('lMarket').checked = true; syncLayerToggles(); }
+    map.flyTo({ center: [x.lng, x.lat], zoom: 16.5, pitch: 50, padding: detailPad(), duration: 1500 }); };
+  if ($('lvHouse')) $('lvHouse').onclick = () => { $('lview').hidden = true; select(b.id); };
+  if ($('lvTrack')) $('lvTrack').onclick = () => trackHouse(x);
+}
+$('lviewClose').onclick = () => { $('lview').hidden = true; };
+async function trackHouse(x) {
+  $('lvTrack').disabled = true; $('lvTrack').textContent = 'Добавляю…';
+  map.flyTo({ center: [x.lng, x.lat], zoom: 17, pitch: 45, padding: detailPad(), duration: 1200 });
+  await new Promise(r => map.once('idle', r));
+  let fp = null, h = null;
+  try {
+    const pt = map.project([x.lng, x.lat]);
+    const f = map.queryRenderedFeatures([[pt.x - 6, pt.y - 6], [pt.x + 6, pt.y + 6]], { target: BUILDINGS_TARGET }).find(q => q.geometry && /Polygon/.test(q.geometry.type));
+    if (f) { const area = geomParts(f.geometry).reduce((a, p) => a + ringAreaM2(p[0]), 0); if (area < 20000) { fp = f.geometry; h = +(f.properties.height || 0) || null; } }
+  } catch {}
+  const { data, error } = await sb.rpc('add_building', { p_name: '', p_street: x.street || null, p_house_no: x.house_no || null, p_zip: x.zip || null,
+    p_lng: x.lng, p_lat: x.lat, p_footprint: fp, p_height: h, p_query: 'из объявления: ' + (x.title || '') });
+  if (error) { toast('Не добавилось: ' + error.message, 5000); $('lvTrack').disabled = false; $('lvTrack').textContent = '＋ Отслеживать этот дом'; return; }
+  await sb.rpc('market_rematch');
+  toast('Дом добавлен в отслеживаемые. Все его объявления теперь будут в карточке дома.', 4500);
+  $('lview').hidden = true;
+  await load(); await loadMarket();
+  if (data) select(data);
+}
+
 $('feed').onclick = e => {
   const st = e.target.closest('.star'); if (st) { toggleFav(+st.dataset.id); return; }
   if (e.target.closest('a')) return;
   const c = e.target.closest('.fcard'); if (!c) return;
   const x = (S.mkGroups || []).find(g => g.mid === +c.dataset.id); if (!x) return;
-  if (x.building_id && S.buildings.some(b => b.id === x.building_id)) { select(x.building_id); return; }
-  if (x.lat) { if (!$('lMarket').checked) { $('lMarket').checked = true; syncLayerToggles(); }
-    if (!DESKTOP()) $('sheet').classList.add('min');
-    map.flyTo({ center: [x.lng, x.lat], zoom: 16.2, pitch: 45, padding: basePad(), duration: 1500 });
-    setTimeout(() => mkPopup(x.mid, { lng: x.lng, lat: x.lat }), 1600); }
+  if (!DESKTOP()) $('sheet').classList.add('min');
+  openListing(x);
 };
 $('listSeg').onclick = e => {
   const v = e.target.closest('button')?.dataset.v; if (!v) return;
   S.listView = v; S.feedLim = 60;
   $('listSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   $('oursBox').hidden = v !== 'ours'; $('feedBox').hidden = v === 'ours';
-  $('feedOurs').parentElement.hidden = v === 'fav';
+  $('feedFiltBtn').hidden = v === 'fav';
   renderFeed();
 };
-$('feedSort').onchange = renderFeed; $('feedOurs').onchange = renderFeed;
+$('feedSort').onchange = renderFeed;
 function pushMarket() {
   if (!map.getSource('mk')) return;
   const now = Date.now();
@@ -920,15 +1027,15 @@ function pushMarket() {
 function mkPopup(id, ll) {
   const x = (S.mkGroups || []).find(g => g.ids.includes(id)); if (!x) return;
   const pop = new mapboxgl.Popup({ closeButton: true, className: 'mkpop', maxWidth: '280px' }).setLngLat(ll).setHTML(feedCard(x)).addTo(map);
-  pop.getElement().addEventListener('click', e => { const st = e.target.closest('.star'); if (st) toggleFav(+st.dataset.id); });
+  pop.getElement().addEventListener('click', e => { const st = e.target.closest('.star'); if (st) { toggleFav(+st.dataset.id); return; } if (e.target.closest('a')) return; pop.remove(); openListing(x); });
 }
 
 /* ---------- рядом с домом: OSM ---------- */
 const SHOP_BRANDS = ['Billa', 'Billa Plus', 'Spar', 'Eurospar', 'Interspar', 'Spar Gourmet', 'Hofer', 'Penny', 'Lidl', 'Другие'];
 const SHOP_COL = { Billa: '#facc15', 'Billa Plus': '#eab308', Spar: '#22c55e', Eurospar: '#16a34a', Interspar: '#15803d', 'Spar Gourmet': '#86efac',
   Hofer: '#60a5fa', Penny: '#f87171', Lidl: '#3b82f6', 'Другие': '#9ca3af' };
-const LOCK_BRANDS = ['Post', 'myflexbox', 'Amazon', 'DHL', 'DPD', 'GLS', 'Другие'];
-const KIND_COL = { pharmacy: '#34d399', post: '#fbbf24', locker: '#c084fc' };
+const LOCK_BRANDS = ['Post', 'myflexbox', 'Amazon', 'Hermes PaketShop', 'DPD', 'Другие'];
+const KIND_COL = { pharmacy: '#34d399', post: '#fbbf24', locker: '#c084fc', night: '#f43f5e' };
 S.shopOn = new Set(JSON.parse(localGet('shopBrands', JSON.stringify(SHOP_BRANDS.filter(b => b !== 'Другие')))));
 S.lockOn = new Set(JSON.parse(localGet('lockBrands', JSON.stringify(LOCK_BRANDS))));
 function brandChips(id, list, set, key, col) {
@@ -941,16 +1048,22 @@ brandChips('lockerBrands', LOCK_BRANDS, S.lockOn, 'lockBrands');
 async function loadOsm() {
   const all = []; let from = 0;
   while (true) { const r = await sb.from('osm_poi').select('osm_id,kind,brand,name,lng,lat,opening_hours').range(from, from + 999); if (r.error || !r.data.length) break; all.push(...r.data); if (r.data.length < 1000) break; from += 1000; }
-  S.osm = all; pushOsm();
+  S.osm = all;
+  const np = await sb.from('night_pharmacy').select('name,address,phone,lat,lng,duty,fetched_at');
+  S.night = np.data || [];
+  if ($('nightInfo') && S.night.length) $('nightInfo').textContent = `(${S.night.length}, обновлено ${new Date(S.night[0].fetched_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})`;
+  pushOsm();
 }
 function pushOsm() {
   if (!map.getSource('osm')) return;
-  const on = { shop: $('lShops').checked, pharmacy: $('lPharm').checked, post: $('lPost').checked, locker: $('lLocker').checked };
+  const on = { shop: $('lShops').checked, pharmacy: $('lPharm').checked, post: $('lPost').checked, locker: $('lLocker').checked, night: $('lNight').checked };
   const label = p => p.kind === 'shop' ? (p.brand === 'Другие' ? (p.name || 'Супермаркет') : p.brand) : p.kind === 'pharmacy' ? '✚ ' + (p.name || 'Apotheke')
     : p.kind === 'post' ? (p.brand === 'Post Partner' ? 'Post Partner' : 'Post') : '📦 ' + (p.brand === 'Другие' ? (p.name || 'Paketbox') : p.brand);
   map.getSource('osm').setData(fc(S.osm.filter(p => on[p.kind] && (p.kind !== 'shop' || S.shopOn.has(p.brand)) && (p.kind !== 'locker' || S.lockOn.has(p.brand)))
     .map(p => ({ type: 'Feature', properties: { kind: p.kind, label: label(p), name: p.name || '', hours: p.opening_hours || '',
-      color: p.kind === 'shop' ? (SHOP_COL[p.brand] || '#9ca3af') : KIND_COL[p.kind] }, geometry: { type: 'Point', coordinates: [+p.lng, +p.lat] } }))));
+      color: p.kind === 'shop' ? (SHOP_COL[p.brand] || '#9ca3af') : KIND_COL[p.kind] }, geometry: { type: 'Point', coordinates: [+p.lng, +p.lat] } }))
+    .concat(on.night ? (S.night || []).map(p => ({ type: 'Feature', properties: { kind: 'night', label: '🌙 ' + p.name, name: p.address + (p.phone ? ' · ' + p.phone : ''), hours: 'Дежурство: ' + (p.duty || ''), color: KIND_COL.night },
+      geometry: { type: 'Point', coordinates: [+p.lng, +p.lat] } })) : [])));
   const any = Object.values(on).some(Boolean);
   vis(['osm-dot', 'osm-label'], any);
 }
@@ -1061,10 +1174,10 @@ function syncLayerToggles() {
     lg.src = `${NOISE_WMS}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&sld_version=1.1.0&layer=2022_STRASSE_${per === 'day' ? '24H' : 'NACHT'}_ZONEN_OE`;
     lg.hidden = false;
   } else lg.hidden = true;
-  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lPost', 'lLocker', 'lSun'].map(k => [k, $(k).checked]))));
+  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun'].map(k => [k, $(k).checked]))));
 }
 try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of Object.entries(saved)) if ($(k)) $(k).checked = v; } catch {}
-[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lPost', 'lLocker', 'lSun'].forEach(id => $(id).onchange = syncLayerToggles);
+[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun'].forEach(id => $(id).onchange = syncLayerToggles);
 $('noiseDay').onchange = syncLayerToggles;
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 
