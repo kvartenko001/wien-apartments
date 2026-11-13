@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.css" rel="stylesheet">
-<link href="style.css?v=1794564529" rel="stylesheet">
+<link href="style.css?v=1794588994" rel="stylesheet">
 </head>
 <body class="theme-a">
 
@@ -146,15 +146,16 @@
     </div>
     <div class="fgroup">
       <div class="frow"><span>Ставка</span><b class="val" id="vRate"></b></div>
-      <input type="range" id="cRate" min="1.5" max="6" step="0.05" value="3.2">
-      <div class="presets" data-target="cRate"><button data-v="2.8">2,8 плавающая</button><button data-v="3.15">3,15 фикс 10 лет</button><button data-v="3.6">3,6</button></div>
+      <input type="range" id="cRate" min="2" max="6" step="0.05" value="3.75">
+      <div class="presets" data-target="cRate"><button data-v="3.33">3,33 плав. лучшая</button><button data-v="3.66">3,66 плав. средняя</button><button data-v="3.75">3,75 фикс 10 л.</button><button data-v="4.33">4,33 фикс 20 л.</button></div>
     </div>
     <div class="fgroup">
       <div class="frow"><span>Срок кредита</span><b class="val" id="vYears"></b></div>
       <input type="range" id="cYears" min="10" max="35" step="1" value="30">
       <div class="presets" data-target="cYears"><button data-v="25">25</button><button data-v="30">30</button><button data-v="35">35 (максимум)</button></div>
     </div>
-    <p class="hint">Расходы при покупке считаются сами: налог 3,5%, Grundbuch 1,1%, маклер 3,6% (если не частник и не застройщик), договор ~2,2%, залог 1,2% от кредита. Итого обычно 9–12% сверху.</p>
+    <p class="hint">Ставки на ноябрь 2026 (после повышения ЕЦБ в июне): плавающая 3,33–3,66 %, фикс 10 лет 3,5–4,2 %, фикс 20 лет 4,1–4,55 %. Полное сравнение — в каждом объявлении о продаже.</p>
+    <p class="hint">Расходы при покупке считаются сами: налог 3,5%, Grundbuch 1,1%, маклер 3,6% (если не частник и не застройщик), договор ~2,2%, залог 1,2% от 120% кредита, оценка ~500 €. Итого обычно 9–12% сверху.</p>
     <div class="ftitle">Аренда</div>
     <div class="fgroup">
       <div class="frow"><span>Срок контракта</span><b class="val" id="vMonths"></b></div>
@@ -227,6 +228,6 @@
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="config.js?v=1794563009"></script>
-<script src="app.js?v=1794564529"></script>
+<script src="app.js?v=1794588994"></script>
 </body>
 </html>

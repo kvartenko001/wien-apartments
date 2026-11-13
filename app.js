@@ -41,7 +41,8 @@ const S = {
     budget: CFG.BUDGET_DEFAULT, basis: 'gross', rooms: 2, area: 45,
     amen: new Set(['has_lift']), districts: new Set(), status: new Set(), hideFail: false
   },
-  c: { months: 36, furn: 10000, rec: 40, eq: +localGet('c_eq', 20), rate: +localGet('c_rate', 3.2), years: +localGet('c_years', 30) },
+  c: { months: 36, furn: 10000, rec: 40, eq: +localGet('c_eq', 20), rate: +localGet('c_rate2', 3.75), years: +localGet('c_years', 30), income: +localGet('c_income', 0) },
+  rates: [],
   stats: {},
   market: [], favs: new Set(), osm: [], listView: 'ours'
 };
@@ -343,6 +344,7 @@ async function load() {
     sb.from('transit_lines_v2').select('mode,ref,colour,geom')
   ]);
   loadMarket(); loadOsm();
+  sb.from('mortgage_rates').select('*').order('sort').then(r => { S.rates = r.data || []; });
   if (b.error) { toast('Ошибка базы: ' + b.error.message, 6000); return; }
   S.buildings = b.data.map(x => {
     const parts = geomParts(x.footprint).map(poly => ringCentroid(poly[0]));
@@ -513,7 +515,8 @@ function renderDetail(id) {
     const sec = h.parentElement, k = sec.dataset.k, open = !sec.classList.contains('open');
     sec.classList.toggle('open', open); localSet('sec_' + k, open ? '1' : '0');
   });
-  $('detailBody').querySelector('.lscroll').onclick = e => { const st = e.target.closest('.star'); if (st) { e.preventDefault(); toggleFav(+st.dataset.id); } };
+  $('detailBody').querySelector('.lscroll').onclick = e => { const st = e.target.closest('.star'); if (st) { e.preventDefault(); toggleFav(+st.dataset.id); return; }
+    const a = e.target.closest('.mcard[data-mid]'); const g = a && (S.mkGroups || []).find(q => String(q.mid) === a.dataset.mid); if (g) { e.preventDefault(); openListing(g); } };
   loadRoutes(b);
   loadNoise(b);
 }
@@ -525,9 +528,10 @@ function listingCard(l) {
   const days = l.first_seen ? Math.max(0, Math.round((Date.now() - new Date(l.published_at || l.first_seen)) / 864e5)) : null;
   const ppm = l.rent_gross && l.area_m2 ? (l.rent_gross / l.area_m2).toFixed(1) : null;
   const drop = (l.price_history || []).filter(x => x.to < x.from).length;
-  return `<a class="mcard${S.mode === 'rent' && l.rent_gross > S.f.budget ? ' over' : ''}" href="${esc(l.url || '#')}" target="_blank" rel="noopener">
+  return `<a class="mcard${S.mode === 'rent' && l.rent_gross > S.f.budget ? ' over' : ''}" href="${esc(l.url || '#')}" target="_blank" rel="noopener"${l.mid ? ` data-mid="${l.mid}"` : ''}>
     <div class="mtop"><b>${eur(l.rent_gross)}</b>${l.mid ? `<span class="star${S.favs.has(l.mid) ? ' on' : ''}" data-id="${l.mid}">★</span>` : ''}</div>
     <div class="mmeta">${l.area_m2 ? Math.round(l.area_m2) + ' м²' : '? м²'} · ${l.rooms ? +l.rooms + ' комн.' : '—'}${ppm ? ' · ' + ppm + ' €/м²' : ''}</div>
+    ${S.mode === 'buy' && l.market && l.rent_gross ? `<div class="mmort">≈ ${eur(buyCalc({ ...l, price: +l.rent_gross }).monthly)}/мес ипотека</div>` : ''}
     <div class="mtitle">${esc((l.title || '').slice(0, 70))}</div>
     <div class="msrc">${(l.srcs || [l.source || 'наша база']).map(x => `<span>${esc(x)}</span>`).join('')}${days != null ? `<em>${days ? days + ' дн.' : 'новое'}</em>` : ''}${drop ? '<em class="drop">цена ↓</em>' : ''}</div>
   </a>`;
@@ -881,12 +885,12 @@ function buyCalc(x) {
   const parts = [['Налог на покупку (GrESt) 3,5 %', p * 0.035], ['Запись в Grundbuch 1,1 %', p * 0.011],
     ['Маклер 3 % + НДС' + (broker ? '' : ' — скорее нет (частник/застройщик)'), p * broker], ['Договор, нотариус/юрист ~1,8 % + НДС', p * 0.0216]];
   const loan0 = p * (1 - eqPct);
-  parts.push(['Запись залога банка 1,2 % от кредита', loan0 * 0.012], ['Оценка/оформление в банке ~0,5 %', loan0 * 0.005]);
+  parts.push(['Запись залога 1,2 % от суммы залога (= 120 % кредита)', loan0 * 1.2 * 0.012], ['Оценка квартиры банком (Schätzung) ~', loan0 ? 500 : 0]);
   const fees = parts.reduce((a, q) => a + q[1], 0);
-  const monthly = annuity(loan0, S.c.rate, S.c.years);
+  const monthly = annuity(loan0, S.c.rate, S.c.years), interest = monthly * S.c.years * 12 - loan0;
   const st = S.stats[x.district], ppm = ppmOf(x);
   const yld = st && st.rent_ppm && ppm ? st.rent_ppm * 12 / ppm * 100 : null;
-  return { p, parts, fees, loan: loan0, cash: p * eqPct + fees, monthly, income: monthly / 0.4, yld, rentEq: st && st.rent_ppm && x.area_m2 ? st.rent_ppm * x.area_m2 : null };
+  return { p, parts, fees, loan: loan0, cash: p * eqPct + fees, monthly, interest, income: monthly / 0.4, yld, rentEq: st && st.rent_ppm && x.area_m2 ? st.rent_ppm * x.area_m2 : null };
 }
 const kEur = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace('.', ',') + ' млн €' : Math.round(n / 1000) + ' тыс €';
 function dBadge(x) { const v = vsDistrict(x); if (v == null) return ''; const c = v <= -10 ? 'good' : v >= 10 ? 'bad' : '';
@@ -1015,7 +1019,7 @@ async function openListing(x) {
     ${d.lift === true ? '<div class="amen"><span>Лифт упомянут</span></div>' : ''}
     ${(d.facts || []).length ? `<dl class="rows lv-facts">${d.facts.map(f => `<dt>${esc(f.k)}</dt><dd>${esc(f.v)}</dd>`).join('')}</dl>` : ''}
     ${(d.equipment || []).length ? `<div class="amen">${d.equipment.map(e => `<span>${esc(e)}</span>`).join('')}</div>` : ''}
-    ${S.mode === 'buy' ? buyBlock(x) : ''}
+    ${(x.deal_type || S.mode) === 'buy' ? buyBlock(x) : ''}
     ${d.description ? `<div class="lv-desc">${esc(d.description).replace(/\n/g, '<br>')}</div>` : ''}
     ${(d.extra || []).map(t => `<div class="lv-desc sub">${esc(t).replace(/\n/g, '<br>')}</div>`).join('')}
     ${d.contact ? `<div class="src">Контакт: ${esc(d.contact)}</div>` : ''}`;
@@ -1023,20 +1027,48 @@ async function openListing(x) {
 }
 function buyBlock(x) {
   const c = buyCalc(x), st = S.stats[x.district] || {}, v = vsDistrict(x);
-  return `<div class="buybox"><div class="ftitle">Покупка: сколько это стоит на самом деле</div>
+  const inc = S.c.income, dsti = inc ? c.monthly / inc * 100 : null;
+  const ok = dsti == null ? '' : dsti <= 40 ? `<span class="ok">✓ ${dsti.toFixed(0)} % дохода — проходит правило банка (≤ 40 %)</span>` : `<span class="bad">✗ ${dsti.toFixed(0)} % дохода — банк скорее откажет (нужно ≤ 40 %)</span>`;
+  const rates = S.rates.length ? S.rates : [{ label: 'Ставка из «Расчёта»', rate: S.c.rate, kind: 'avg' }];
+  const rows = rates.map(r => {
+    const m = annuity(c.loan, +r.rate, S.c.years), tot = m * S.c.years * 12 - c.loan;
+    return `<tr class="${r.kind}${+r.rate === S.c.rate ? ' cur' : ''}" data-rate="${r.rate}" title="${esc(r.source + ', ' + r.as_of)}"><td>${esc(r.label)}</td><td>${String(r.rate).replace('.', ',')} %</td><td><b>${eur(m)}</b></td><td>${eur(tot)}</td><td>${eur(m / 0.4)}</td></tr>`;
+  }).join('');
+  const stress = annuity(c.loan, S.c.rate + 1.5, S.c.years);
+  return `<div class="buybox"><div class="ftitle">Ипотека для этой квартиры</div>
+    <div class="mctl">
+      <label>Свои деньги <select id="mEq">${[10, 20, 25, 30, 40, 50].map(p => `<option value="${p}"${p === S.c.eq ? ' selected' : ''}>${p} % = ${kEur(c.p * p / 100)}</option>`).join('')}</select></label>
+      <label>Срок <select id="mYears">${[15, 20, 25, 30, 35].map(y => `<option${y === S.c.years ? ' selected' : ''}>${y}</option>`).join('')}</select> лет</label>
+      <label>Доход семьи «на руки» <input id="mInc" type="number" step="100" min="0" placeholder="€/мес" value="${inc || ''}"></label>
+    </div>
     <dl class="rows">
-      <dt>Цена за м²</dt><dd>${ppmOf(x) ? eur(ppmOf(x)) : '—'}${st.buy_ppm ? ` · медиана района ${eur(st.buy_ppm)}${v != null ? ` (${v > 0 ? '+' : '−'}${Math.abs(Math.round(v))}%)` : ''}` : ''}</dd>
-      ${c.parts.map(([k, val]) => `<dt>${k}</dt><dd>${eur(val)}</dd>`).join('')}
-      <dt><b>Расходы сверху</b></dt><dd><b>${eur(c.fees)}</b> (${(c.fees / c.p * 100).toFixed(1)}%)</dd>
-      <dt><b>Нужно своих денег</b></dt><dd><b>${eur(c.cash)}</b> = ${S.c.eq}% взнос + расходы</dd>
-      <dt>Кредит</dt><dd>${eur(c.loan)} · ${S.c.rate}% · ${S.c.years} лет</dd>
-      <dt><b>Платёж в месяц</b></dt><dd><b>${eur(c.monthly)}</b> + Betriebskosten/ремфонд</dd>
-      <dt>Нужен доход «на руки»</dt><dd>от ${eur(c.income)}/мес на семью (банк: платёж ≤ 40%)</dd>
-      ${c.rentEq ? `<dt>Аренда такой квартиры тут</dt><dd>≈ ${eur(c.rentEq)}/мес · валовая доходность ${c.yld.toFixed(1)}%</dd>` : ''}
+      <dt>Цена</dt><dd>${eur(c.p)}${ppmOf(x) ? ` · ${eur(ppmOf(x))}/м²` : ''}${st.buy_ppm ? ` · медиана района ${eur(st.buy_ppm)}${v != null ? ` (${v > 0 ? '+' : '−'}${Math.abs(Math.round(v))}%)` : ''}` : ''}</dd>
+      ${c.parts.filter(q => q[1] > 0).map(([k, val]) => `<dt>${k}</dt><dd>${eur(val)}</dd>`).join('')}
+      <dt><b>Расходы сверху</b></dt><dd><b>${eur(c.fees)}</b> (${(c.fees / c.p * 100).toFixed(1)} %)</dd>
+      <dt><b>Нужно своих денег</b></dt><dd><b>${eur(c.cash)}</b> = ${S.c.eq} % взнос + расходы</dd>
+      <dt>Кредит</dt><dd>${eur(c.loan)} на ${S.c.years} лет</dd>
+      <dt><b>Платёж при ${String(S.c.rate).replace('.', ',')} %</b></dt><dd><b>${eur(c.monthly)}/мес</b> · переплата ${eur(c.interest)} ${ok}</dd>
+      <dt>Если ставка вырастет на 1,5 п.п.</dt><dd>${eur(stress)}/мес (+${eur(stress - c.monthly)}) — для плавающей ставки</dd>
+      ${c.rentEq ? `<dt>Сдавать такую квартиру</dt><dd>≈ ${eur(c.rentEq)}/мес аренды · валовая доходность ${c.yld.toFixed(1)} %</dd>` : ''}
     </dl>
-    <div class="src">Оценка, не оффер банка. Правила FMA: 20% своих, платёж ≤ 40% дохода, до 35 лет. Медианы — по нашим собранным объявлениям (${st.buy_n || 0} продажа / ${st.rent_n || 0} аренда в районе).</div></div>`;
+    <div class="ftitle sm">Сравнение ставок рынка (нажми строку — пересчитать по ней)</div>
+    <table class="mtab"><thead><tr><th>Вариант</th><th>Ставка</th><th>В месяц</th><th>Переплата за срок</th><th>Нужен доход</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="src">Ставки: ${[...new Set(rates.map(r => r.source && r.source.split(' (')[0]).filter(Boolean))].join(', ')} — на ${rates[0].as_of || '—'}. Банки в Австрии публично ставки не публикуют: реальное предложение даёт банк или брокер после проверки дохода.
+      Получить настоящие офферы: <a href="https://durchblicker.at/wohnfinanzierung" target="_blank" rel="noopener">durchblicker</a> · <a href="https://www.infina.at/" target="_blank" rel="noopener">Infina</a> · <a href="https://www.optifin.at/" target="_blank" rel="noopener">Optifin</a> (брокеры, сравнивают десятки банков, бесплатно для покупателя) или напрямую <a href="https://www.sparkasse.at/erstebank/privatkunden/wohnen-finanzieren" target="_blank" rel="noopener">Erste</a>, <a href="https://www.bankaustria.at/privatkunden-finanzierungen-und-kredite-wohnkredit.jsp" target="_blank" rel="noopener">Bank Austria</a>, <a href="https://www.raiffeisen.at/wien/rlb/de/privatkunden/wohnen.html" target="_blank" rel="noopener">Raiffeisen</a>, <a href="https://www.bawag.at/bawag/privatkunden/wohnen" target="_blank" rel="noopener">BAWAG</a>.
+      Правила FMA: от 20 % своих, платёж ≤ 40 % дохода, до 35 лет. Не учтены Betriebskosten и ремфонд собственника (~2,5–4 €/м²).</div></div>`;
+}
+function bindBuy(x) {
+  const bb = $('lviewBody').querySelector('.buybox'); if (!bb) return;
+  const redo = () => { bb.outerHTML = buyBlock(x); bindBuy(x); if (S.mode === 'buy') renderFeed(); };
+  const set = (k, v) => { S.c[k] = v; localSet(k === 'rate' ? 'c_rate2' : 'c_' + k, v); const el = { eq: 'cEq', rate: 'cRate', years: 'cYears' }[k], lb = { eq: 'vEq', rate: 'vRate', years: 'vYears' }[k];
+    if (el && $(el)) $(el).value = v; if (lb && $(lb)) $(lb).textContent = k === 'eq' ? v + ' %' : k === 'rate' ? String(v).replace('.', ',') + ' %' : v + ' лет'; };
+  bb.querySelector('#mEq').onchange = e => { set('eq', +e.target.value); redo(); };
+  bb.querySelector('#mYears').onchange = e => { set('years', +e.target.value); redo(); };
+  bb.querySelector('#mInc').onchange = e => { set('income', +e.target.value || 0); redo(); };
+  bb.querySelectorAll('tr[data-rate]').forEach(tr => tr.onclick = () => { set('rate', +tr.dataset.rate); redo(); });
 }
 function bindLv(x, b) {
+  bindBuy(x);
   const st = $('lviewBody').querySelector('.star'); if (st) st.onclick = () => toggleFav(x.mid);
   if ($('lvMap')) $('lvMap').onclick = () => { if (!$('lMarket').checked) { $('lMarket').checked = true; syncLayerToggles(); }
     map.flyTo({ center: [x.lng, x.lat], zoom: 16.5, pitch: 50, padding: detailPad(), duration: 1500 }); };
@@ -1284,7 +1316,7 @@ function bindCalc(id, key, out, fmt) {
   const upd = () => {
     S.c[key] = +el.value; $(out).textContent = fmt(S.c[key]);
     document.querySelectorAll(`.presets[data-target="${id}"] button`).forEach(b => b.classList.toggle('on', +b.dataset.v === S.c[key]));
-    if (['eq', 'rate', 'years'].includes(key)) { localSet('c_' + key, S.c[key]); if (S.mode === 'buy') { renderFeed(); const x = S.lvX; if (x && !$('lview').hidden) { const bb = $('lviewBody').querySelector('.buybox'); if (bb) bb.outerHTML = buyBlock(x); } } }
+    if (['eq', 'rate', 'years'].includes(key)) { localSet(key === 'rate' ? 'c_rate2' : 'c_' + key, S.c[key]); if (S.mode === 'buy') { renderFeed(); const x = S.lvX; if (x && !$('lview').hidden) { const bb = $('lviewBody').querySelector('.buybox'); if (bb) { bb.outerHTML = buyBlock(x); bindBuy(x); } } } }
     if (S.selected) renderDetail(S.selected);
   };
   el.oninput = upd; upd();

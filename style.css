@@ -296,3 +296,18 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .nb{color:#fbbf24;background:rgba(251,191,36,.12)!important}
 .buybox{margin:12px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}
 .buybox dl.rows dd b,.buybox dl.rows dt b{color:inherit}
+/* ипотека в объявлении */
+.mctl{display:flex;flex-wrap:wrap;gap:8px 14px;margin:6px 0 10px;font-size:12px;color:var(--muted,#9aa1aa)}
+.mctl label{display:flex;align-items:center;gap:6px}
+.mctl select,.mctl input{background:var(--panel,#1b1f24);color:inherit;border:1px solid var(--line);border-radius:8px;padding:4px 6px;font:inherit}
+.mctl input{width:96px}
+.buybox .ok{color:var(--good);margin-left:6px}.buybox .bad{color:var(--bad);margin-left:6px}
+.ftitle.sm{font-size:11px;margin-top:10px}
+.mtab{width:100%;border-collapse:collapse;font-size:12px;margin:4px 0 8px}
+.mtab th{text-align:left;font-weight:500;color:var(--muted,#9aa1aa);padding:4px 6px;border-bottom:1px solid var(--line)}
+.mtab td{padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer}
+.mtab tr:hover td{background:rgba(255,255,255,.04)}
+.mtab tr.best td:first-child{color:var(--good)}.mtab tr.max td:first-child{color:var(--bad)}
+.mtab tr.cur td{background:rgba(251,191,36,.10)}
+.buybox .src a{color:inherit;text-decoration:underline}
+.mmort{font-size:11px;color:#fbbf24;margin:2px 0}
