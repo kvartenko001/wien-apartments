@@ -345,3 +345,19 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .linkbtn{background:none;border:0;color:var(--amber);cursor:pointer;font:inherit;padding:0 4px}
 .mtab.units tr.reserved td{color:var(--dim)}
 .mtab.units td:last-child{font-size:11px;color:#f97316}
+
+/* тип проекта, галерея проекта, лайтбокс */
+.ychip.pt i{border-radius:3px}
+.pt-neubau{background:#e5e7eb}.pt-dachausbau{background:#38bdf8}.pt-umbau{background:#a3e635}.pt-altbau{background:#d6a76c}
+.ptb{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:9px;color:#0b0d10;margin-right:4px}
+.ptline{font-size:12.5px;color:var(--mut,#9aa3ad);margin:6px 0 10px;line-height:1.45}
+.pgal{margin:10px 0 14px}.pgtabs{display:flex;gap:6px;margin-bottom:8px}
+.pgtabs button{background:transparent;border:1px solid #ffffff22;color:inherit;border-radius:14px;padding:4px 11px;font-size:12.5px;cursor:pointer}
+.pgtabs button.on{background:#f5a524;color:#111;border-color:#f5a524}.pgtabs b{opacity:.7;font-weight:500}
+.gal.pg a{position:relative;cursor:zoom-in}.pdate{position:absolute;left:5px;bottom:5px;background:#000c;color:#fff;font-size:11px;padding:1px 6px;border-radius:6px}
+.units .plan{background:none;border:1px solid #ffffff30;color:inherit;border-radius:5px;padding:0 6px;cursor:pointer}
+#lbox{position:fixed;inset:0;z-index:9999;background:#000e;display:flex;align-items:center;justify-content:center}
+#lbox[hidden]{display:none}#lbox img{max-width:94vw;max-height:84vh;object-fit:contain;background:#fff1}
+#lbox .lbcap{position:absolute;bottom:18px;left:0;right:0;text-align:center;color:#ddd;font-size:13px;padding:0 60px}
+#lbox button{position:absolute;background:#0008;color:#fff;border:0;font-size:26px;width:46px;height:46px;border-radius:23px;cursor:pointer}
+#lbox .lbx{top:16px;right:16px;font-size:20px}#lbox .lbp{left:14px;top:50%}#lbox .lbn{right:14px;top:50%}

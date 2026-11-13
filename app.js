@@ -1274,7 +1274,14 @@ const RY = [ // год сдачи → цвет
   { k: 'na', t: 'без даты', c: '#64748b', f: y => !y },
 ];
 const ryOf = y => RY.find(r => r.f(y));
-S.rad = { on: new Set(JSON.parse(localGet('radYears', '["done","2026","2027","later","na"]'))), sale: false, mine: false, q: '', dev: null, list: [], devs: [], reg: [] };
+const PT = [ // тип проекта: что именно строится
+  { k: 'neubau', t: 'Новостройка', d: 'дом с нуля (на пустом участке или на месте снесённого)' },
+  { k: 'dachausbau', t: 'Мансарды / надстройка', d: 'новые квартиры на крыше старого дома (Dachgeschossausbau, Aufstockung)' },
+  { k: 'umbau', t: 'Перестройка', d: 'бывший офис/склад/отель переделан в жильё (Umnutzung)' },
+  { k: 'altbau', t: 'Санированный альтбау', d: 'старый дом (до ~1950) отремонтирован целиком (Sanierung)' },
+];
+const ptOf = k => PT.find(p => p.k === (k || 'neubau')) || PT[0];
+S.rad = { on: new Set(JSON.parse(localGet('radYears', '["done","2026","2027","later","na"]'))), types: new Set(JSON.parse(localGet('radTypes', '["neubau"]'))), sale: false, mine: false, q: '', dev: null, list: [], devs: [], reg: [] };
 const DEV_LEGAL = /\s*(\(FN[^)]*\)|gesellschaft m\.?b\.?h\.?|ges\.?m\.?b\.?h\.?|gmbh(\s*&\s*co\.?\s*kg)?|\bag\b|\bkg\b|\beg\b|e\.u\.|m\.b\.h\.?)\s*/gi;
 const PERSON = /(^|\s)(mag\.|mag\(fh\)|di |dipl\.|dr\.|ing\.|herr |frau )|\b(msc|mba|mrics|bsc|verkauf|vertrieb|beratung)\b/i;
 const BROKER = /makler|vermittlung|immocontract|\behl\b|örag|swiss life|remax|re\/max|sotheby|engel ?&|otto immobilien|doppelmakler|brokers?\b/i;
@@ -1302,7 +1309,7 @@ function logoHtml(d) {
 }
 async function loadRadar() {
   const [p, r] = await Promise.all([
-    sb.from('dev_projects').select('id,name,address,zip,district,lat,lng,developer_names,completion_year,units_total,units_available,units_reserved,area_min,area_max,rooms_min,rooms_max,price_min,price_max,ppm_min,ppm_max,ppm_median,energy_class,amenities,url,official_url,first_seen,building_id').is('removed_at', null).limit(2000),
+    sb.from('dev_projects').select('id,name,address,zip,district,lat,lng,developer_names,completion_year,units_total,units_available,units_reserved,area_min,area_max,rooms_min,rooms_max,price_min,price_max,ppm_min,ppm_max,ppm_median,energy_class,amenities,url,official_url,first_seen,building_id,project_type,built_year,renovated_year,photos').is('removed_at', null).limit(2000),
     sb.from('developers').select('*')
   ]);
   if (p.error) { console.warn(p.error); return; }
@@ -1318,7 +1325,7 @@ async function loadRadar() {
       d.projects.push(x.id); const dm = domainOf(x.official_url); if (dm) d.domains[dm] = (d.domains[dm] || 0) + 1;
       devs.set(key, d);
     }
-    return { ...x, devs: keys, y: ryOf(x.completion_year) };
+    return { ...x, devs: keys, y: ryOf(x.completion_year), pt: ptOf(x.project_type) };
   });
   S.rad.devs = [...devs.values()].map(d => ({ ...d, domain: Object.entries(d.domains).sort((a, b) => b[1] - a[1])[0]?.[0] || null }))
     .sort((a, b) => b.projects.length - a.projects.length || a.name.localeCompare(b.name));
@@ -1326,13 +1333,15 @@ async function loadRadar() {
 }
 function radFiltered() {
   const R = S.rad, q = R.q.toLowerCase();
-  return R.list.filter(x => R.on.has(x.y.k) && (!R.sale || x.units_available > 0) && (!R.mine || !S.f.districts.length || S.f.districts.includes(x.district))
+  return R.list.filter(x => R.on.has(x.y.k) && R.types.has(x.pt.k) && (!R.sale || x.units_available > 0) && (!R.mine || !S.f.districts.length || S.f.districts.includes(x.district))
     && (!R.dev || x.devs.includes(R.dev)) && (!q || [x.name, x.address, ...(x.devs || [])].join(' ').toLowerCase().includes(q)));
 }
 function renderRadar() {
   const R = S.rad, list = radFiltered();
   $('radCnt').textContent = R.list.length; $('devCnt').textContent = R.devs.length;
-  $('radYears').innerHTML = RY.map(r => { const n = R.list.filter(x => x.y.k === r.k).length;
+  $('radTypes').innerHTML = PT.map(p => { const n = R.list.filter(x => x.pt.k === p.k).length;
+    return `<button class="ychip pt${R.types.has(p.k) ? ' on' : ''}" data-k="${p.k}" title="${esc(p.d)}"><i class="pt-${p.k}"></i>${p.t} <b>${n}</b></button>`; }).join('');
+  $('radYears').innerHTML = RY.map(r => { const n = R.list.filter(x => x.y.k === r.k && R.types.has(x.pt.k)).length;
     return `<button class="ychip${R.on.has(r.k) ? ' on' : ''}" data-k="${r.k}"><i style="background:${r.c}"></i>${r.t} <b>${n}</b></button>`; }).join('');
   $('radDevF').innerHTML = R.dev ? `Застройщик: <b>${esc(R.dev)}</b> <button class="linkbtn" id="radDevX">показать всех</button>` : '';
   const sorted = list.slice().sort((a, b) => (a.completion_year || 9999) - (b.completion_year || 9999) || (b.units_available || 0) - (a.units_available || 0));
@@ -1340,9 +1349,9 @@ function renderRadar() {
     const st = S.stats[x.district] || {}, prem = st.buy_ppm && x.ppm_median ? Math.round((x.ppm_median / st.buy_ppm - 1) * 100) : null;
     return `<div class="rcard" data-id="${x.id}"><i class="rdot" style="background:${x.y.c}"></i>
       <div class="rbody"><div class="rname">${esc(x.name || '—')}</div>
-        <div class="rmeta">${x.district ? x.district + '-й · ' : ''}${esc(x.address || '')}</div>
+        <div class="rmeta">${x.pt.k !== 'neubau' ? `<span class="ptb pt-${x.pt.k}">${x.pt.t}${x.built_year ? ' · дом ' + x.built_year : ''}</span> ` : ''}${x.district ? x.district + '-й · ' : ''}${esc(x.address || '')}</div>
         <div class="rmeta">${x.y.k === 'done' ? 'сдан ' + x.completion_year : x.completion_year ? 'сдача ' + x.completion_year : 'срок не указан'}
-          ${x.units_total ? ` · ${x.units_total} кв.` : ''}${x.units_available ? ` · <b>${x.units_available} в продаже</b>` : ''}
+          ${(x.photos || []).length ? ` · 📷 ${x.photos.length}` : ''}${x.units_total ? ` · ${x.units_total} кв.` : ''}${x.units_available ? ` · <b>${x.units_available} в продаже</b>` : ''}
           ${x.ppm_median ? ` · ${eur(x.ppm_median)}/м²` : ''}${prem != null ? ` <em class="vs ${prem <= -10 ? 'good' : prem >= 10 ? 'bad' : ''}">${prem > 0 ? '+' : '−'}${Math.abs(prem)}% к району</em>` : ''}</div>
         ${x.devs.length ? `<div class="rdev">${x.devs.map(d => `<span data-dev="${esc(d)}">${esc(d)}</span>`).join('')}</div>` : ''}</div></div>`;
   }).join('') || '<p class="hint">Ничего не найдено. Проверь фильтры по году.</p>';
@@ -1363,14 +1372,15 @@ function pushRadar() {
       paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 7, 15, 16], 'circle-color': ['get', 'color'], 'circle-opacity': 0.18, 'circle-blur': 0.6 } });
     map.addLayer({ id: 'dev-dot', type: 'circle', source: 'dev', slot: 'top', layout: { visibility: 'none' },
       paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, ['+', 3, ['min', ['/', ['get', 'u'], 60], 4]], 15, ['+', 7, ['min', ['/', ['get', 'u'], 30], 7]]],
-               'circle-color': ['get', 'color'], 'circle-stroke-color': '#0b0d10', 'circle-stroke-width': 1.5 } });
+               'circle-color': ['case', ['==', ['get', 'old'], 1], '#0b0d10', ['get', 'color']],
+               'circle-stroke-color': ['case', ['==', ['get', 'old'], 1], ['get', 'color'], '#0b0d10'], 'circle-stroke-width': ['case', ['==', ['get', 'old'], 1], 2.5, 1.5] } });
     map.addLayer({ id: 'dev-label', type: 'symbol', source: 'dev', slot: 'top', minzoom: 13.5, layout: { visibility: 'none',
         'text-field': ['get', 'name'], 'text-size': 11, 'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-optional': true, 'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'] },
       paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#000', 'text-halo-width': 1.3 } });
     map.on('click', 'dev-dot', e => openProject(e.features[0].properties.id));
     map.on('mouseenter', 'dev-dot', () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', 'dev-dot', () => map.getCanvas().style.cursor = '');
   }
-  const feats = radFiltered().map(x => ({ type: 'Feature', properties: { id: x.id, name: x.name || '', color: x.y.c, u: x.units_total || 10 }, geometry: { type: 'Point', coordinates: [x.lng, x.lat] } }));
+  const feats = radFiltered().map(x => ({ type: 'Feature', properties: { id: x.id, name: x.name || '', color: x.y.c, u: x.units_total || 10, old: x.pt.k === 'neubau' ? 0 : 1 }, geometry: { type: 'Point', coordinates: [x.lng, x.lat] } }));
   map.getSource('dev').setData(fc(feats));
   if (!S.focusSaved) vis(['dev-halo', 'dev-dot', 'dev-label'], S.radarActive);
 }
@@ -1379,7 +1389,9 @@ async function openProject(id) {
   $('feedPanel').hidden = true; $('detail').hidden = true; $('lview').hidden = false;
   const st = S.stats[x.district] || {}, prem = st.buy_ppm && x.ppm_median ? (x.ppm_median / st.buy_ppm - 1) * 100 : null;
   const head = `<div class="dname"><i class="rdot big" style="background:${x.y.c}"></i>${esc(x.name || '—')}</div>
-    <div class="daddr">${esc(x.address || '')}${x.zip ? ', ' + x.zip : ''} · ${x.district}-й район · ${x.y.k === 'done' ? 'сдан в ' + x.completion_year : x.completion_year ? 'сдача ' + x.completion_year : 'срок сдачи не указан'}</div>
+    <div class="daddr">${esc(x.address || '')}${x.zip ? ', ' + x.zip : ''} · ${x.district}-й район · ${x.y.k === 'done' ? (x.pt.k === 'altbau' ? 'санирован в ' : 'сдан в ') + x.completion_year : x.completion_year ? 'сдача ' + x.completion_year : 'срок сдачи не указан'}</div>
+    <div class="ptline"><span class="ptb pt-${x.pt.k}">${x.pt.t}</span> ${esc(x.pt.d)}${x.built_year ? ` · дом построен в ${x.built_year}` : ''}${x.renovated_year ? `, санирован в ${x.renovated_year}` : ''}</div>
+    ${prjGallery(x)}
     <div class="lv-btns">
       <a class="lvb" href="${esc(x.url)}" target="_blank" rel="noopener">wiew.at ↗</a>
       ${x.official_url ? `<a class="lvb" href="${esc(x.official_url)}" target="_blank" rel="noopener">сайт проекта ↗</a>` : ''}
@@ -1399,19 +1411,50 @@ async function openProject(id) {
   $('lviewBody').innerHTML = head + '<p class="hint">Загружаю квартиры…</p>';
   bindProject(x);
   map.flyTo({ center: [x.lng, x.lat], zoom: Math.max(map.getZoom(), 15.5), pitch: 50, padding: detailPad(), duration: 1300 });
-  const { data } = await sb.from('dev_units').select('unit_ref,floor,rooms,area_m2,price,ppm,status,price_history').eq('project_id', id).is('gone_at', null).order('price').limit(400);
+  const { data } = await sb.from('dev_units').select('unit_ref,floor,rooms,area_m2,price,ppm,status,price_history,plan_url').eq('project_id', id).is('gone_at', null).order('price').limit(400);
   const us = data || [];
-  const rows = us.map(u => `<tr class="${u.status}"><td>${esc(u.unit_ref)}</td><td>${esc(u.floor || '')}</td><td>${u.rooms ? +u.rooms : ''}</td><td>${u.area_m2 ? (+u.area_m2).toFixed(1) : ''}</td><td>${eur(u.price)}${(u.price_history || []).length ? ' <em class="drop">↓</em>' : ''}</td><td>${u.ppm ? eur(u.ppm) : ''}</td><td>${u.status === 'reserved' ? 'резерв' : u.status === 'sold' ? 'продана' : ''}</td></tr>`).join('');
+  const rows = us.map(u => `<tr class="${u.status}"><td>${esc(u.unit_ref)}</td><td>${esc(u.floor || '')}</td><td>${u.rooms ? +u.rooms : ''}</td><td>${u.area_m2 ? (+u.area_m2).toFixed(1) : ''}</td><td>${eur(u.price)}${(u.price_history || []).length ? ' <em class="drop">↓</em>' : ''}</td><td>${u.ppm ? eur(u.ppm) : ''}</td><td>${u.status === 'reserved' ? 'резерв' : u.status === 'sold' ? 'продана' : ''}</td><td>${u.plan_url ? `<button class="plan" data-plan="${esc(u.plan_url)}" title="планировка">⌗</button>` : ''}</td></tr>`).join('');
   $('lviewBody').innerHTML = head + (us.length ? `<div class="ftitle sm">Квартиры (${us.length})</div>
-    <table class="mtab units"><thead><tr><th>Top</th><th>Этаж</th><th>Комн.</th><th>м²</th><th>Цена</th><th>€/м²</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <table class="mtab units"><thead><tr><th>Top</th><th>Этаж</th><th>Комн.</th><th>м²</th><th>Цена</th><th>€/м²</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <p class="src">Нажми строку — откроется расчёт ипотеки для этой квартиры.</p>` : '<p class="hint">Поквартирного списка у этого проекта на портале нет.</p>');
   bindProject(x, us);
 }
+// галерея проекта: визуализации снаружи / внутри / фото стройки по месяцам
+const PK = { outside: 'Снаружи', inside: 'Внутри', build: 'Стройка' };
+function prjGallery(x) {
+  const ph = x.photos || [];
+  if (!ph.length) return `<p class="hint">Фото проекта ещё собираются (официальный сайт + wiew.at, обновление раз в неделю).</p>`;
+  const kinds = Object.keys(PK).filter(k => ph.some(p => p.kind === k));
+  const k0 = S.prjKind && kinds.includes(S.prjKind) ? S.prjKind : kinds[0];
+  const mon = d => { if (!d) return ''; const [y, m] = d.split('-'); return ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'][+m - 1] + ' ' + y; };
+  return `<div class="pgal"><div class="pgtabs">${kinds.map(k => `<button data-k="${k}" class="${k === k0 ? 'on' : ''}">${PK[k]} <b>${ph.filter(p => p.kind === k).length}</b></button>`).join('')}</div>
+    <div class="gal pg">${ph.map((p, i) => `<a data-i="${i}" data-k="${p.kind}"${p.kind !== k0 ? ' hidden' : ''}><img src="${esc(p.url)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.remove()">${p.kind === 'build' && p.date ? `<span class="pdate">${mon(p.date)}</span>` : ''}</a>`).join('')}</div>
+    <p class="src">Источник: ${[...new Set(ph.map(p => p.src === 'wiew' ? 'wiew.at' : p.src === 'both' ? 'сайт застройщика + wiew.at' : 'сайт застройщика'))].join(', ')}${ph.some(p => p.kind === 'build') ? '' : ' · фото стройки застройщик пока не публикует'}</p></div>`;
+}
+function lightbox(list, i) {
+  let lb = $('lbox');
+  if (!lb) { document.body.insertAdjacentHTML('beforeend', '<div id="lbox" hidden><img><div class="lbcap"></div><button class="lbx">✕</button><button class="lbp">‹</button><button class="lbn">›</button></div>'); lb = $('lbox'); }
+  const show = () => { const p = list[i]; lb.querySelector('img').src = p.url; lb.querySelector('.lbcap').textContent = [p.cap, p.date, `${i + 1}/${list.length}`].filter(Boolean).join(' · '); };
+  lb.querySelector('.lbx').onclick = () => lb.hidden = true;
+  lb.querySelector('.lbp').onclick = e => { e.stopPropagation(); i = (i - 1 + list.length) % list.length; show(); };
+  lb.querySelector('.lbn').onclick = e => { e.stopPropagation(); i = (i + 1) % list.length; show(); };
+  lb.onclick = e => { if (e.target === lb) lb.hidden = true; };
+  document.onkeydown = e => { if (lb.hidden) return; if (e.key === 'Escape') lb.hidden = true; if (e.key === 'ArrowRight') lb.querySelector('.lbn').click(); if (e.key === 'ArrowLeft') lb.querySelector('.lbp').click(); };
+  show(); lb.hidden = false;
+}
 function bindProject(x, us) {
+  const g = $('lviewBody').querySelector('.pgal');
+  if (g) {
+    g.querySelector('.pgtabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.prjKind = b.dataset.k;
+      g.querySelectorAll('.pgtabs button').forEach(z => z.classList.toggle('on', z === b)); g.querySelectorAll('.pg a').forEach(a => a.hidden = a.dataset.k !== b.dataset.k); };
+    g.querySelector('.pg').onclick = e => { const a = e.target.closest('a'); if (!a) return; const k = a.dataset.k, list = (x.photos || []).filter(p => p.kind === k);
+      lightbox(list, list.indexOf(x.photos[+a.dataset.i])); };
+  }
   if ($('prjHouse')) $('prjHouse').onclick = () => { $('lview').hidden = true; select(x.building_id); };
   if ($('lvTrack')) $('lvTrack').onclick = () => trackHouse({ lat: x.lat, lng: x.lng, street: (x.address || '').replace(/\s+\d.*$/, ''), house_no: (x.address || '').match(/\d+[a-z]?/i)?.[0] || null, zip: x.zip, title: x.name });
   $('lviewBody').querySelectorAll('.rdev [data-dev]').forEach(el => el.onclick = () => radSetDev(el.dataset.dev));
-  if (us) $('lviewBody').querySelectorAll('.units tbody tr').forEach((tr, i) => tr.onclick = () => {
+  if (us) $('lviewBody').querySelectorAll('.units tbody tr').forEach((tr, i) => tr.onclick = e => {
+    const pl = e.target.closest('[data-plan]'); if (pl) { lightbox([{ url: pl.dataset.plan, cap: `${x.name} · ${us[i].unit_ref} · планировка` }], 0); return; }
     const u = us[i]; const fake = { price: +u.price, area_m2: +u.area_m2, rooms: u.rooms, district: x.district, pid: 'wiew', is_private: false, deal_type: 'buy', title: `${x.name} · ${u.unit_ref}` };
     const old = $('lviewBody').querySelector('.buybox'); if (old) old.remove();
     tr.closest('table').insertAdjacentHTML('beforebegin', buyBlock(fake)); S.lvX = fake; bindBuy(fake);
@@ -1431,6 +1474,8 @@ function radFit() {
 }
 $('radYears').onclick = e => { const b = e.target.closest('.ychip'); if (!b) return; const R = S.rad; R.on.has(b.dataset.k) ? R.on.delete(b.dataset.k) : R.on.add(b.dataset.k);
   localSet('radYears', JSON.stringify([...R.on])); renderRadar(); pushRadar(); };
+$('radTypes').onclick = e => { const b = e.target.closest('.ychip'); if (!b) return; const R = S.rad; R.types.has(b.dataset.k) ? R.types.delete(b.dataset.k) : R.types.add(b.dataset.k);
+  localSet('radTypes', JSON.stringify([...R.types])); renderRadar(); pushRadar(); };
 $('radSale').onchange = e => { S.rad.sale = e.target.checked; renderRadar(); pushRadar(); };
 $('radMine').onchange = e => { S.rad.mine = e.target.checked; renderRadar(); pushRadar(); };
 $('radQ').oninput = e => { S.rad.q = e.target.value.trim(); renderRadar(); pushRadar(); };
