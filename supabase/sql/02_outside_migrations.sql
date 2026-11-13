@@ -126,3 +126,8 @@ end $f$;
 select cron.schedule('radar-list', '40 0 * * *', $$select private.radar_call('list')$$);          -- каталог wiew.at раз в день
 select cron.schedule('radar-detail', '*/10 0-4 * * *', $$select private.radar_call('detail', 30)$$);  -- карточки и квартиры, ~750 за ночь
 -- radar-fill: разовая догрузка каждые 4 мин, снимает себя (private.radar_fill)
+
+-- ---------- 13.11.2026 18:00: фото домов v3 ----------
+alter table public.buildings add column if not exists photo_pages text[] default '{}', add column if not exists photos_checked_at timestamptz;
+-- photos-new: каждые 10 минут — фото для только что разобранных домов (photos_checked_at is null)
+select cron.schedule('photos-new', '*/10 * * * *', $$select extensions.http_set_curlopt('CURLOPT_TIMEOUT','280'); select extensions.http_get('https://nyxvpcrftzsoprhnethq.supabase.co/functions/v1/photos?key=<COLLECTOR_KEY>&missing=1')$$);
