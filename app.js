@@ -503,7 +503,7 @@ function routeWhen() {
   const p = n => String(n).padStart(2, '0');
   return { date: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`, time: '0800' };
 }
-function routeWhenLabel() { return 'будний день, выезд 8:00'; }
+function routeWhenLabel() { return 'будни, выезд 8:00, бодрым шагом'; }
 
 function chip(l) {
   if (l.kind === 'walk') return `<span class="lchip walk">🚶${l.min}</span>`;
@@ -517,12 +517,12 @@ function best(r) { return r && r.trips && r.trips.length ? r.trips.reduce((a, b)
 async function fetchRoute(b, dest) {
   const key = `${b.id}|${dest.id}`;
   if (S.routes[key]) return S.routes[key];
-  try { const c = JSON.parse(sessionStorage.getItem('wa_r_' + key) || 'null'); if (c) return (S.routes[key] = c); } catch {}
+  try { const c = JSON.parse(sessionStorage.getItem('wa_r2_' + key) || 'null'); if (c) return (S.routes[key] = c); } catch {}
   const w = routeWhen();
   const { data, error } = await sb.functions.invoke('route', { body: { from: [b.lng, b.lat], to: [dest.lng, dest.lat], date: w.date, time: w.time, n: 4 } });
   if (error || !data || data.error) throw new Error((data && data.error) || (error && error.message) || 'нет ответа');
   S.routes[key] = data;
-  try { sessionStorage.setItem('wa_r_' + key, JSON.stringify(data)); } catch {}
+  try { sessionStorage.setItem('wa_r2_' + key, JSON.stringify(data)); } catch {}
   return data;
 }
 
