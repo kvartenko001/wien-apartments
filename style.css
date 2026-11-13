@@ -311,3 +311,37 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .mtab tr.cur td{background:rgba(251,191,36,.10)}
 .buybox .src a{color:inherit;text-decoration:underline}
 .mmort{font-size:11px;color:#fbbf24;margin:2px 0}
+.routefocus{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:30;background:rgba(17,19,23,.92);color:#e8eaed;border:1px solid var(--line);border-radius:20px;padding:7px 14px;font-size:12px;cursor:pointer;backdrop-filter:blur(8px)}
+.routefocus:hover{border-color:var(--amber)}
+/* радар новостроек */
+.radlegend{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.ychip{display:flex;align-items:center;gap:5px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:4px 9px;font-size:12px;color:var(--dim);cursor:pointer;opacity:.55}
+.ychip.on{opacity:1;color:inherit;border-color:rgba(255,255,255,.18)}
+.ychip i,.mini{display:inline-block;width:9px;height:9px;border-radius:50%}
+.mini{width:7px;height:7px;margin:0 2px 0 6px}
+.ychip b{font-weight:500;opacity:.7}
+.frow2{display:flex;flex-wrap:wrap;gap:4px 14px;margin:4px 0}
+.radsearch{width:100%;margin:6px 0;background:var(--panel);color:inherit;border:1px solid var(--line);border-radius:10px;padding:7px 10px;font:inherit;font-size:13px}
+.radlist,.devlist{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.rcard,.dcard{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--panel);cursor:pointer}
+.rcard:hover,.dcard:hover,.dcard.on{border-color:var(--amber)}
+.rdot{flex:0 0 auto;width:11px;height:11px;border-radius:50%;margin-top:4px;box-shadow:0 0 0 3px rgba(255,255,255,.06)}
+.rdot.big{display:inline-block;width:13px;height:13px;margin:0 8px 0 0;vertical-align:middle}
+.rbody{min-width:0;flex:1}
+.rname{font-weight:600;font-size:13.5px}
+.rname small{font-weight:400;color:var(--dim);font-size:11px}
+.rmeta{font-size:12px;color:var(--dim);margin-top:2px}
+.rmeta b{color:inherit}
+.rdev{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.rdev span{font-size:11px;padding:2px 7px;border-radius:9px;background:rgba(255,255,255,.06);cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.rdev span:hover{background:rgba(251,191,36,.18)}
+.rdev.big{margin:8px 0}
+.rdev.big span{font-size:12px;padding:4px 9px}
+.dlogo{width:28px;height:28px;border-radius:7px;background:#fff;object-fit:contain;flex:0 0 auto}
+.rdev .dlogo{width:16px;height:16px;border-radius:4px}
+.dlogo.ini{display:inline-flex;align-items:center;justify-content:center;background:#334155;color:#e2e8f0;font-size:11px;font-weight:700}
+.rdev .dlogo.ini{font-size:8px}
+.rlink{font-size:11px;color:var(--dim)}
+.linkbtn{background:none;border:0;color:var(--amber);cursor:pointer;font:inherit;padding:0 4px}
+.mtab.units tr.reserved td{color:var(--dim)}
+.mtab.units td:last-child{font-size:11px;color:#f97316}
