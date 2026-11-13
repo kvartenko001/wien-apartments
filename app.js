@@ -908,11 +908,11 @@ function annuity(loan, ratePct, years) { const r = ratePct / 1200, n = years * 1
 function buyCalc(x) {
   const p = x.price || 0, eqPct = S.c.eq / 100;
   const broker = x.is_private === true || x.pid ? 0 : 0.036;
-  const parts = [['Налог на покупку (GrESt) 3,5 %', p * 0.035], ['Запись в Grundbuch 1,1 %', p * 0.011],
-    ['Маклер 3 % + НДС' + (broker ? '' : ' — скорее нет (частник/застройщик)'), p * broker], ['Договор, нотариус/юрист ~1,8 % + НДС', p * 0.0216]];
+  const parts = [['Налог на покупку', 'GrESt · 3,5 % цены', p * 0.035], ['Запись в Grundbuch', 'реестр собственников · 1,1 %', p * 0.011],
+    ['Маклер', broker ? '3 % + НДС' : 'скорее нет: частник или застройщик', p * broker], ['Договор и нотариус', '~1,8 % + НДС', p * 0.0216]];
   const loan0 = p * (1 - eqPct);
-  parts.push(['Запись залога 1,2 % от суммы залога (= 120 % кредита)', loan0 * 1.2 * 0.012], ['Оценка квартиры банком (Schätzung) ~', loan0 ? 500 : 0]);
-  const fees = parts.reduce((a, q) => a + q[1], 0);
+  parts.push(['Запись залога банка', '1,2 % от 120 % кредита', loan0 * 1.2 * 0.012], ['Оценка квартиры банком', 'Schätzung, ~500 €', loan0 ? 500 : 0]);
+  const fees = parts.reduce((a, q) => a + q[2], 0);
   const monthly = annuity(loan0, S.c.rate, S.c.years), interest = monthly * S.c.years * 12 - loan0;
   const st = S.stats[x.district], ppm = ppmOf(x);
   const yld = st && st.rent_ppm && ppm ? st.rent_ppm * 12 / ppm * 100 : null;
@@ -1051,40 +1051,58 @@ async function openListing(x) {
     ${d.contact ? `<div class="src">Контакт: ${esc(d.contact)}</div>` : ''}`;
   bindLv(x, b);
 }
+const BANKS = [
+  ['Брокеры (бесплатно для покупателя, сравнивают десятки банков)', [['Infina', 'https://www.infina.at/'], ['Optifin', 'https://www.optifin.at/'], ['durchblicker', 'https://durchblicker.at/wohnfinanzierung']]],
+  ['Банки', [['Erste / Sparkasse', 'https://www.sparkasse.at/erstebank/privatkunden/wohnen-finanzieren'], ['Bank Austria', 'https://www.bankaustria.at/privatkunden-finanzierungen-und-kredite-wohnkredit.jsp'],
+    ['Raiffeisen NÖ-Wien', 'https://www.raiffeisen.at/noew/rlb/de/privatkunden.html'], ['BAWAG', 'https://www.bawag.at/'], ['HYPO NOE', 'https://www.hyponoe.at/'], ['Volksbank Wien', 'https://www.volksbankwien.at/'],
+    ['bank99', 'https://www.bank99.at/'], ['Oberbank', 'https://www.oberbank.at/'], ['BKS Bank', 'https://www.bks.at/']]],
+  ['Bausparkassen (часть суммы под фикс-ставку)', [['Wüstenrot', 'https://www.wuestenrot.at/'], ['s Bausparkasse', 'https://www.sbausparkasse.at/'], ['Raiffeisen Bausparkasse', 'https://www.bausparen.at/'], ['start:bausparkasse', 'https://www.startbausparkasse.at/']]],
+];
 function buyBlock(x) {
   const c = buyCalc(x), st = S.stats[x.district] || {}, v = vsDistrict(x);
-  const inc = S.c.income, dsti = inc ? c.monthly / inc * 100 : null;
-  const ok = dsti == null ? '' : dsti <= 40 ? `<span class="ok">✓ ${dsti.toFixed(0)} % дохода — проходит правило банка (≤ 40 %)</span>` : `<span class="bad">✗ ${dsti.toFixed(0)} % дохода — банк скорее откажет (нужно ≤ 40 %)</span>`;
+  const inc = S.c.income, dsti = inc ? c.monthly / inc * 100 : null, r$ = String(S.c.rate).replace('.', ',');
   const rates = S.rates.length ? S.rates : [{ label: 'Ставка из «Расчёта»', rate: S.c.rate, kind: 'avg' }];
   const rows = rates.map(r => {
     const m = annuity(c.loan, +r.rate, S.c.years), tot = m * S.c.years * 12 - c.loan;
-    return `<tr class="${r.kind}${+r.rate === S.c.rate ? ' cur' : ''}" data-rate="${r.rate}" title="${esc(r.source + ', ' + r.as_of)}"><td>${esc(r.label)}</td><td>${String(r.rate).replace('.', ',')} %</td><td><b>${eur(m)}</b></td><td>${eur(tot)}</td><td>${eur(m / 0.4)}</td></tr>`;
+    return `<tr class="${r.kind}${+r.rate === S.c.rate ? ' cur' : ''}" data-rate="${r.rate}"><td>${esc(r.label)}</td>
+      <td class="who"><a href="${esc(r.source_url || '#')}" target="_blank" rel="noopener">${esc(r.provider || r.source || '')}</a><small>${esc(r.provider_note || '')}${r.as_of ? ' · ' + r.as_of.slice(8, 10) + '.' + r.as_of.slice(5, 7) : ''}</small></td>
+      <td class="num">${String(r.rate).replace('.', ',')} %</td><td class="num"><b>${eur(m)}</b></td><td class="num">${eur(tot)}</td><td class="num">${eur(m / 0.4)}</td></tr>`;
   }).join('');
   const stress = annuity(c.loan, S.c.rate + 1.5, S.c.years);
-  return `<div class="buybox"><div class="ftitle">Ипотека для этой квартиры</div>
+  const tile = (cls, label, val, sub) => `<div class="kpi ${cls}"><span>${label}</span><b>${val}</b><small>${sub}</small></div>`;
+  const vsCls = v == null ? '' : v <= -10 ? 'good' : v >= 10 ? 'bad' : '';
+  return `<div class="buybox">
+    <div class="bbhead"><div class="ftitle">Ипотека для этой квартиры</div>
+      <p class="bbwhat">Ипотека = жилищный кредит под залог квартиры (в Австрии: <i>Wohnkredit</i> или <i>Hypothekarkredit</i>, это одно и то же).</p></div>
     <div class="mctl">
       <label>Свои деньги <select id="mEq">${[10, 20, 25, 30, 40, 50].map(p => `<option value="${p}"${p === S.c.eq ? ' selected' : ''}>${p} % = ${kEur(c.p * p / 100)}</option>`).join('')}</select></label>
       <label>Срок <select id="mYears">${[15, 20, 25, 30, 35].map(y => `<option${y === S.c.years ? ' selected' : ''}>${y}</option>`).join('')}</select> лет</label>
       <label>Доход семьи «на руки» <input id="mInc" type="number" step="100" min="0" placeholder="€/мес" value="${inc || ''}"></label>
     </div>
-    <dl class="rows">
-      <dt>Цена</dt><dd>${eur(c.p)}${ppmOf(x) ? ` · ${eur(ppmOf(x))}/м²` : ''}${st.buy_ppm ? ` · медиана района ${eur(st.buy_ppm)}${v != null ? ` (${v > 0 ? '+' : '−'}${Math.abs(Math.round(v))}%)` : ''}` : ''}</dd>
-      ${c.parts.filter(q => q[1] > 0).map(([k, val]) => `<dt>${k}</dt><dd>${eur(val)}</dd>`).join('')}
-      <dt><b>Расходы сверху</b></dt><dd><b>${eur(c.fees)}</b> (${(c.fees / c.p * 100).toFixed(1)} %)</dd>
-      <dt><b>Нужно своих денег</b></dt><dd><b>${eur(c.cash)}</b> = ${S.c.eq} % взнос + расходы</dd>
-      <dt>Кредит</dt><dd>${eur(c.loan)} на ${S.c.years} лет</dd>
-      <dt><b>Платёж при ${String(S.c.rate).replace('.', ',')} %</b></dt><dd><b>${eur(c.monthly)}/мес</b> · переплата ${eur(c.interest)} ${ok}</dd>
-      <dt>Если ставка вырастет на 1,5 п.п.</dt><dd>${eur(stress)}/мес (+${eur(stress - c.monthly)}) — для плавающей ставки</dd>
-      ${c.rentEq ? `<dt>Сдавать такую квартиру</dt><dd>≈ ${eur(c.rentEq)}/мес аренды · валовая доходность ${c.yld.toFixed(1)} %</dd>` : ''}
-    </dl>
-    <div class="ftitle sm">Сравнение ставок рынка (нажми строку — пересчитать по ней)</div>
-    <table class="mtab"><thead><tr><th>Вариант</th><th>Ставка</th><th>В месяц</th><th>Переплата за срок</th><th>Нужен доход</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="src">Ставки: ${[...new Set(rates.map(r => r.source && r.source.split(' (')[0]).filter(Boolean))].join(', ')} — на ${rates[0].as_of || '—'}. Банки в Австрии публично ставки не публикуют: реальное предложение даёт банк или брокер после проверки дохода.
-      Получить настоящие офферы: <a href="https://durchblicker.at/wohnfinanzierung" target="_blank" rel="noopener">durchblicker</a> · <a href="https://www.infina.at/" target="_blank" rel="noopener">Infina</a> · <a href="https://www.optifin.at/" target="_blank" rel="noopener">Optifin</a> (брокеры, сравнивают десятки банков, бесплатно для покупателя) или напрямую <a href="https://www.sparkasse.at/erstebank/privatkunden/wohnen-finanzieren" target="_blank" rel="noopener">Erste</a>, <a href="https://www.bankaustria.at/privatkunden-finanzierungen-und-kredite-wohnkredit.jsp" target="_blank" rel="noopener">Bank Austria</a>, <a href="https://www.raiffeisen.at/wien/rlb/de/privatkunden/wohnen.html" target="_blank" rel="noopener">Raiffeisen</a>, <a href="https://www.bawag.at/bawag/privatkunden/wohnen" target="_blank" rel="noopener">BAWAG</a>.
-      Правила FMA: от 20 % своих, платёж ≤ 40 % дохода, до 35 лет. Не учтены Betriebskosten и ремфонд собственника (~2,5–4 €/м²).</div></div>`;
+    <div class="kpis">
+      ${tile('amber', 'Нужно своих денег', eur(c.cash), `${S.c.eq} % взнос + расходы на сделку`)}
+      ${tile('amber', 'Платёж в месяц', eur(c.monthly), `при ${r$} % · ${S.c.years} лет`)}
+      ${dsti != null ? tile(dsti <= 40 ? 'good' : 'bad', 'Доля вашего дохода', dsti.toFixed(0) + ' %', dsti <= 40 ? '✓ банк одобрит (нужно ≤ 40 %)' : '✗ банк скорее откажет (нужно ≤ 40 %)')
+        : tile('', 'Нужен доход', eur(c.income), 'на руки в месяц, правило ≤ 40 %')}
+      ${tile(vsCls, 'Цена к району', v != null ? (v > 0 ? '+' : '−') + Math.abs(Math.round(v)) + ' %' : '—', st.buy_ppm ? `${eur(ppmOf(x) || 0)}/м² против ${eur(st.buy_ppm)}/м²` : 'нет данных по району')}
+    </div>
+    <div class="bsec"><div class="bsh"><span>Цена квартиры</span><b>${eur(c.p)}</b></div></div>
+    <div class="bsec"><div class="bsh"><span>Расходы на сделку сверху</span><b>${eur(c.fees)} <em>${(c.fees / c.p * 100).toFixed(1)} %</em></b></div>
+      ${c.parts.filter(q => q[2] > 0 || /Маклер/.test(q[0])).map(([k, h, val]) => `<div class="bl"><span>${k}<small>${h}</small></span><b>${val ? eur(val) : '0 €'}</b></div>`).join('')}</div>
+    <div class="bsec"><div class="bsh"><span>Кредит</span><b>${eur(c.loan)}</b></div>
+      <div class="bl"><span>Срок · ставка<small>ставку меняй кликом в таблице ниже</small></span><b>${S.c.years} лет · ${r$} %</b></div>
+      <div class="bl"><span>Переплата банку за весь срок<small>сколько отдашь сверху суммы кредита</small></span><b>${eur(c.interest)}</b></div>
+      <div class="bl warn"><span>Если плавающая ставка вырастет на 1,5 п.п.<small>стресс-тест банка</small></span><b>${eur(stress)}/мес <em>+${eur(stress - c.monthly)}</em></b></div></div>
+    ${c.rentEq ? `<div class="bsec"><div class="bsh"><span>Если сдавать</span><b>≈ ${eur(c.rentEq)}/мес</b></div><div class="bl"><span>Валовая доходность<small>аренда за год / цена, без расходов</small></span><b>${c.yld.toFixed(1)} %</b></div></div>` : ''}
+    <div class="ftitle sm">Сравнение ставок рынка · нажми строку — пересчитать</div>
+    <div class="mtabw"><table class="mtab rates"><thead><tr><th>Вариант</th><th>Кто / источник</th><th>Ставка</th><th>В месяц</th><th>Переплата</th><th>Нужен доход</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="bnote"><b>Почему не названия банков?</b> Банки в Австрии не публикуют ставки — каждый даёт предложение лично, после проверки дохода. Поэтому здесь реальные ставки рынка от брокеров:
+      <b>Infina</b> (индекс по 12 банкам) и <b>Optifin</b> (лучшее из 60–80 банков). Брокер бесплатно для тебя запросит банки и покажет, <i>какой именно банк</i> даёт ставку.</p>
+    <div class="banks">${BANKS.map(([g, list]) => `<div class="bgrp"><span>${g}</span><div>${list.map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener">${n}</a>`).join('')}</div></div>`).join('')}</div>
+    <p class="src">Правила FMA: от 20 % своих денег, платёж ≤ 40 % дохода, срок до 35 лет. Не учтены Betriebskosten и ремфонд собственника (~2,5–4 €/м² в месяц).</p></div>`;
 }
 function bindBuy(x) {
-  const bb = $('lviewBody').querySelector('.buybox'); if (!bb) return;
+  const bb = $('lviewBody').querySelector('.buybox'); $('lview').classList.toggle('wide', !!bb || !!$('lviewBody').querySelector('.pgal')); if (!bb) return;
   const redo = () => { bb.outerHTML = buyBlock(x); bindBuy(x); if (S.mode === 'buy') renderFeed(); };
   const set = (k, v) => { S.c[k] = v; localSet(k === 'rate' ? 'c_rate2' : 'c_' + k, v); const el = { eq: 'cEq', rate: 'cRate', years: 'cYears' }[k], lb = { eq: 'vEq', rate: 'vRate', years: 'vYears' }[k];
     if (el && $(el)) $(el).value = v; if (lb && $(lb)) $(lb).textContent = k === 'eq' ? v + ' %' : k === 'rate' ? String(v).replace('.', ',') + ' %' : v + ' лет'; };
@@ -1443,6 +1461,7 @@ function lightbox(list, i) {
   show(); lb.hidden = false;
 }
 function bindProject(x, us) {
+  $('lview').classList.add('wide');
   const g = $('lviewBody').querySelector('.pgal');
   if (g) {
     g.querySelector('.pgtabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.prjKind = b.dataset.k;

@@ -361,3 +361,29 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 #lbox .lbcap{position:absolute;bottom:18px;left:0;right:0;text-align:center;color:#ddd;font-size:13px;padding:0 60px}
 #lbox button{position:absolute;background:#0008;color:#fff;border:0;font-size:26px;width:46px;height:46px;border-radius:23px;cursor:pointer}
 #lbox .lbx{top:16px;right:16px;font-size:20px}#lbox .lbp{left:14px;top:50%}#lbox .lbn{right:14px;top:50%}
+
+/* карточка ипотеки: шире, плитки, секции */
+@media (min-width:900px){ .lview.wide{width:min(620px,46vw)!important} }
+.buybox{padding:14px 16px}
+.bbhead .ftitle{margin-bottom:2px}.bbwhat{margin:0 0 10px;font-size:12.5px;color:var(--dim);line-height:1.45}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:12px 0 14px}
+.kpi{border-radius:12px;padding:10px 12px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;gap:2px}
+.kpi span{font-size:12px;color:var(--dim)}.kpi b{font-size:22px;font-weight:700;letter-spacing:-.3px;font-family:'JetBrains Mono',monospace}
+.kpi small{font-size:11.5px;color:var(--dim);line-height:1.35}
+.kpi.amber{background:rgba(245,165,36,.12);border-color:rgba(245,165,36,.35)}.kpi.amber b{color:#fbbf24}
+.kpi.good{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.35)}.kpi.good b{color:#4ade80}
+.kpi.bad{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35)}.kpi.bad b{color:#f87171}
+.bsec{border-top:1px solid var(--line);padding:9px 0 4px}
+.bsh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:14px;font-weight:600;margin-bottom:4px}
+.bsh b{font-family:'JetBrains Mono',monospace}.bsh em,.bl em{font-style:normal;font-weight:500;font-size:12px;color:var(--dim);margin-left:6px}
+.bl{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:5px 0;font-size:13px}
+.bl span{display:flex;flex-direction:column}.bl small{font-size:11.5px;color:var(--dim)}
+.bl b{font-family:'JetBrains Mono',monospace;font-weight:500;white-space:nowrap}
+.bl.warn b{color:#fb923c}
+.mtabw{overflow-x:auto}.mtab.rates td{vertical-align:top}.mtab.rates td.num,.mtab.rates th:nth-child(n+3){text-align:right;white-space:nowrap}
+.mtab .who a{color:inherit;font-weight:600;text-decoration:none;border-bottom:1px dotted #ffffff55}.mtab .who small{display:block;color:var(--dim);font-size:11px;line-height:1.3}
+.bnote{font-size:12.5px;line-height:1.5;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:9px 11px;margin:8px 0}
+.banks{display:flex;flex-direction:column;gap:8px;margin:8px 0}.bgrp>span{font-size:11.5px;color:var(--dim)}
+.bgrp div{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.bgrp a{font-size:12px;padding:3px 9px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:inherit;text-decoration:none}
+.bgrp a:hover{border-color:#f5a524}
