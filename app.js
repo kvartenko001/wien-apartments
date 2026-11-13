@@ -41,7 +41,8 @@ const S = {
     budget: CFG.BUDGET_DEFAULT, basis: 'gross', rooms: 2, area: 45,
     amen: new Set(['has_lift']), districts: new Set(), status: new Set(), hideFail: false
   },
-  c: { months: 36, furn: 10000, rec: 40 },
+  c: { months: 36, furn: 10000, rec: 40, eq: +localGet('c_eq', 20), rate: +localGet('c_rate', 3.2), years: +localGet('c_years', 30) },
+  stats: {},
   market: [], favs: new Set(), osm: [], listView: 'ours'
 };
 
@@ -405,11 +406,10 @@ function evaluate(b) {
   for (const k of S.f.amen) if (!b[k]) why.push('нет: ' + AMEN.find(a => a[0] === k)[1].toLowerCase());
   if (S.f.districts.size && !S.f.districts.has(b.district)) why.push('не тот район');
   if (S.f.status.size && !S.f.status.has(b.our_status)) why.push('статус');
-  if (S.mode === 'buy' && !(b.interest_mode || []).includes('buy')) why.push('не для покупки');
-  const ls = S.mode === 'rent' ? buildingListings(b) : S.listings.filter(l => l.building_id === b.id && l.status === 'active' && l.deal_type === S.mode);
+  const ls = buildingListings(b);
   const fit = ls.filter(l => {
     const price = S.f.basis === 'gross' ? +l.rent_gross : +l.monthly_total;
-    return price <= S.f.budget && (+l.rooms || 0) >= S.f.rooms && (+l.area_m2 || 0) >= S.f.area;
+    return (S.mode === 'buy' || price <= S.f.budget) && (+l.rooms || 0) >= S.f.rooms && (+l.area_m2 || 0) >= S.f.area;
   });
   if (S.mode === 'rent') {
     if (!ls.length) why.push('нет активных объявлений');
@@ -447,7 +447,7 @@ function renderList() {
           <div class="bname">${esc(b.name || b.street + ' ' + (b.house_no || ''))}<span class="status">${STATUS[b.our_status] || ''}</span></div>
           <div class="bmeta">${b.district ? b.district + '-й район' : 'район ?'}${b.year_built ? ' · ' + b.year_built : ''}${b.height_m ? ' · ' + Math.round(b.height_m) + ' м' : ''}${b.ls.length ? ' · ' + b.ls.length + ' объявл.' : ''}</div>
         </div>
-        <div class="bprice">${isFinite(p) ? 'от ' + eur(p) : '—'}<small>${S.f.basis === 'gross' ? 'грязная' : 'полная/мес'}</small></div>
+        <div class="bprice">${isFinite(p) ? 'от ' + eur(p) : '—'}<small>${S.mode === 'buy' ? 'цена' : S.f.basis === 'gross' ? 'грязная' : 'полная/мес'}</small></div>
       </div>
       ${b.research_status === 'queued' ? '<div class="queued">⏳ на разборе: Claude соберёт данные и объявления</div>' : ''}
       ${b.pass ? '' : `<div class="why">${b.why.join(' · ')}</div>`}
@@ -525,7 +525,7 @@ function listingCard(l) {
   const days = l.first_seen ? Math.max(0, Math.round((Date.now() - new Date(l.published_at || l.first_seen)) / 864e5)) : null;
   const ppm = l.rent_gross && l.area_m2 ? (l.rent_gross / l.area_m2).toFixed(1) : null;
   const drop = (l.price_history || []).filter(x => x.to < x.from).length;
-  return `<a class="mcard${l.rent_gross > S.f.budget ? ' over' : ''}" href="${esc(l.url || '#')}" target="_blank" rel="noopener">
+  return `<a class="mcard${S.mode === 'rent' && l.rent_gross > S.f.budget ? ' over' : ''}" href="${esc(l.url || '#')}" target="_blank" rel="noopener">
     <div class="mtop"><b>${eur(l.rent_gross)}</b>${l.mid ? `<span class="star${S.favs.has(l.mid) ? ' on' : ''}" data-id="${l.mid}">★</span>` : ''}</div>
     <div class="mmeta">${l.area_m2 ? Math.round(l.area_m2) + ' м²' : '? м²'} · ${l.rooms ? +l.rooms + ' комн.' : '—'}${ppm ? ' · ' + ppm + ' €/м²' : ''}</div>
     <div class="mtitle">${esc((l.title || '').slice(0, 70))}</div>
@@ -808,14 +808,20 @@ function setRouteSum(d, min) {
 }
 
 /* ---------- рынок: объявления со всех сайтов (собираются каждое утро) ---------- */
-const MK_COLS = 'id,source,url,title,street,house_no,zip,district,lng,lat,price,area_m2,rooms,is_private,published_at,first_seen,price_history,building_id';
+const MK_COLS = 'id,source,url,title,street,house_no,zip,district,lng,lat,price,area_m2,rooms,is_private,published_at,first_seen,price_history,building_id,pid:raw->>project_id';
 async function loadMarket() {
-  const [m, f] = await Promise.all([
-    sb.from('market_listings').select(MK_COLS).is('removed_at', null).order('first_seen', { ascending: false }).limit(5000),
-    sb.from('market_favorites').select('listing_id')
-  ]);
-  if (m.error) { console.warn(m.error); return; }
-  S.market = (m.data || []).map(x => ({ ...x, price: +x.price || null, area_m2: +x.area_m2 || null, rooms: +x.rooms || null }));
+  const deal = S.mode, rows = [];
+  const page = i => sb.from('market_listings').select(MK_COLS).is('removed_at', null).eq('deal_type', deal).order('id').range(i * 1000, i * 1000 + 999);
+  const [f, st] = await Promise.all([sb.from('market_favorites').select('listing_id'), sb.from('district_stats').select('*')]);
+  for (let i = 0; i < 60; i += 4) {
+    const rs = await Promise.all([0, 1, 2, 3].map(k => page(i + k)));
+    const err = rs.find(r => r.error); if (err) { console.warn(err.error); break; }
+    rs.forEach(r => rows.push(...r.data));
+    if (rs.some(r => r.data.length < 1000)) break;
+  }
+  if (deal !== S.mode) return; // режим успели переключить
+  S.stats = Object.fromEntries((st.data || []).map(x => [x.district, x]));
+  S.market = rows.map(x => ({ ...x, price: +x.price || null, area_m2: +x.area_m2 || null, rooms: +x.rooms || null }));
   S.favs = new Set((f.data || []).map(x => +x.listing_id));
   S.mkGroups = groupMarket(S.market);
   applyFilters();
@@ -834,11 +840,11 @@ function groupMarket(list) {
       if (S.favs.has(x.id)) cur.mid = x.id;
     }
   }
-  return [...g.values()].map(x => ({ ...x, rent_gross: x.price, monthly_total: x.price, status: 'active', deal_type: 'rent', market: true }));
+  return [...g.values()].map(x => ({ ...x, rent_gross: x.price, monthly_total: x.price, status: 'active', deal_type: S.mode, market: true }));
 }
 const isFav = g => g.ids.some(i => S.favs.has(i));
 function buildingListings(b) {
-  const own = S.listings.filter(l => l.building_id === b.id && l.status === 'active' && l.deal_type === 'rent')
+  const own = S.listings.filter(l => l.building_id === b.id && l.status === 'active' && l.deal_type === S.mode)
     .map(l => ({ ...l, srcs: [l.source || 'наша база'] }));
   const mk = (S.mkGroups || []).filter(x => x.building_id === b.id);
   // наши ручные записи, совпадающие с рыночными, не дублируем
@@ -846,7 +852,7 @@ function buildingListings(b) {
   return [...rest, ...mk];
 }
 function fitsFilters(x) {
-  if (!x.price || x.price > S.f.budget) return false;
+  if (!x.price || (S.mode === 'rent' && x.price > S.f.budget)) return false;
   if (x.rooms && x.rooms < S.f.rooms) return false;
   if (x.area_m2 && x.area_m2 < S.f.area) return false;
   if (S.f.districts.size && !S.f.districts.has(x.district)) return false;
@@ -862,14 +868,39 @@ async function toggleFav(id) {
   if (S.selected) { const sc = $('detailBody').querySelector('.lscroll'); if (sc) { const b = S.buildings.find(x => x.id === S.selected); sc.innerHTML = buildingListings(b).sort((x, y) => (+x.rent_gross || 9e9) - (+y.rent_gross || 9e9)).map(listingCard).join(''); } }
   document.querySelectorAll(`.star[data-id]`).forEach(el => { const gg = (S.mkGroups || []).find(x => x.ids.includes(+el.dataset.id)); if (gg) el.classList.toggle('on', isFav(gg)); });
 }
+/* ---------- покупка: медианы районов, расходы, ипотека ---------- */
+const ppmOf = x => x.price && x.area_m2 ? x.price / x.area_m2 : null;
+function vsDistrict(x) { // % к медиане €/м² района (минус = дешевле)
+  const st = S.stats[x.district], med = st && (S.mode === 'buy' ? st.buy_ppm : st.rent_ppm), p = ppmOf(x);
+  return med && p ? (p / med - 1) * 100 : null;
+}
+function annuity(loan, ratePct, years) { const r = ratePct / 1200, n = years * 12; return r ? loan * r / (1 - Math.pow(1 + r, -n)) : loan / n; }
+function buyCalc(x) {
+  const p = x.price || 0, eqPct = S.c.eq / 100;
+  const broker = x.is_private === true || x.pid ? 0 : 0.036;
+  const parts = [['Налог на покупку (GrESt) 3,5 %', p * 0.035], ['Запись в Grundbuch 1,1 %', p * 0.011],
+    ['Маклер 3 % + НДС' + (broker ? '' : ' — скорее нет (частник/застройщик)'), p * broker], ['Договор, нотариус/юрист ~1,8 % + НДС', p * 0.0216]];
+  const loan0 = p * (1 - eqPct);
+  parts.push(['Запись залога банка 1,2 % от кредита', loan0 * 0.012], ['Оценка/оформление в банке ~0,5 %', loan0 * 0.005]);
+  const fees = parts.reduce((a, q) => a + q[1], 0);
+  const monthly = annuity(loan0, S.c.rate, S.c.years);
+  const st = S.stats[x.district], ppm = ppmOf(x);
+  const yld = st && st.rent_ppm && ppm ? st.rent_ppm * 12 / ppm * 100 : null;
+  return { p, parts, fees, loan: loan0, cash: p * eqPct + fees, monthly, income: monthly / 0.4, yld, rentEq: st && st.rent_ppm && x.area_m2 ? st.rent_ppm * x.area_m2 : null };
+}
+const kEur = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace('.', ',') + ' млн €' : Math.round(n / 1000) + ' тыс €';
+function dBadge(x) { const v = vsDistrict(x); if (v == null) return ''; const c = v <= -10 ? 'good' : v >= 10 ? 'bad' : '';
+  return `<em class="vs ${c}" title="€/м² против медианы ${x.district}-го района">${v > 0 ? '+' : '−'}${Math.abs(Math.round(v))}% к району</em>`; }
+
 function feedCard(x) {
   const b = x.building_id && S.buildings.find(y => y.id === x.building_id);
   const days = Math.max(0, Math.round((Date.now() - new Date(x.published_at || x.first_seen)) / 864e5));
   const isNew = Date.now() - new Date(x.first_seen) < 2 * 864e5;
   const drop = (x.price_history || []).filter(h => h.to < h.from).length;
   return `<div class="fcard${isNew ? ' new' : ''}" data-id="${x.mid}">
-    <div class="ftop"><b>${eur(x.price)}</b><span class="fm">${x.area_m2 ? Math.round(x.area_m2) + ' м²' : '? м²'} · ${x.rooms ? x.rooms + ' к.' : '—'}${x.area_m2 ? ' · ' + (x.price / x.area_m2).toFixed(1) + ' €/м²' : ''}</span>
+    <div class="ftop"><b>${eur(x.price)}</b><span class="fm">${x.area_m2 ? Math.round(x.area_m2) + ' м²' : '? м²'} · ${x.rooms ? x.rooms + ' к.' : '—'}${x.area_m2 ? ' · ' + (x.price / x.area_m2).toFixed(S.mode === 'buy' ? 0 : 1) + ' €/м²' : ''}</span>
       <span class="star${isFav(x) ? ' on' : ''}" data-id="${x.mid}">★</span></div>
+    ${S.mode === 'buy' ? (() => { const c = buyCalc(x); return `<div class="fbuy">${dBadge(x)}${x.pid ? '<em class="nb">новостройка</em>' : ''}<span>≈ ${eur(c.monthly)}/мес кредит</span>${c.yld ? `<span>доходн. ${c.yld.toFixed(1)}%</span>` : ''}</div>`; })() : dBadge(x) ? `<div class="fbuy">${dBadge(x)}</div>` : ''}
     <div class="ft">${fitsFilters(x) ? '<span class="fit">подходит</span> ' : ''}${esc((x.title || '').slice(0, 90))}</div>
     <div class="fmeta">${b ? `<span class="ours">${esc(b.name)}</span>` : ''}${esc([x.street, x.house_no].filter(Boolean).join(' ') || '')} ${x.zip || ''}
       · ${x.srcs.map(s => `<a href="${esc(x.urls[x.srcs.indexOf(s)] || x.url)}" target="_blank" rel="noopener">${s}</a>`).join(' ')}
@@ -877,9 +908,11 @@ function feedCard(x) {
   </div>`;
 }
 // фильтры ленты — свои, быстрые; требования (вкладка «Требования») только помечают «подходит»
-const DEF_FF = () => ({ pmin: null, pmax: S.f.budget, area: S.f.area, rooms: S.f.rooms, d: new Set(S.f.districts), src: new Set(), isNew: false, drop: false, priv: false, ours: false, lift: false });
-S.ff = (() => { try { const o = JSON.parse(localGet('ff', 'null')); if (o) return { ...o, d: new Set(o.d), src: new Set(o.src) }; } catch {} return null; })();
-function saveFF() { localSet('ff', JSON.stringify({ ...S.ff, d: [...S.ff.d], src: [...S.ff.src] })); }
+const DEF_FF = () => ({ pmin: null, pmax: S.mode === 'buy' ? 500000 : S.f.budget, area: S.f.area, rooms: S.f.rooms, d: new Set(S.f.districts), src: new Set(), isNew: false, drop: false, priv: false, ours: false, lift: false, proj: false, below: false });
+const ffKey = () => S.mode === 'buy' ? 'ffBuy' : 'ff';
+function readFF() { try { const o = JSON.parse(localGet(ffKey(), 'null')); if (o) return { ...o, d: new Set(o.d), src: new Set(o.src) }; } catch {} return null; }
+S.ff = readFF();
+function saveFF() { localSet(ffKey(), JSON.stringify({ ...S.ff, d: [...S.ff.d], src: [...S.ff.src] })); }
 const LIFT_RE = /\b(lift|aufzug|fahrstuhl|liftstock|personenaufzug)/i;
 function passFF(x) {
   const f = S.ff;
@@ -893,13 +926,16 @@ function passFF(x) {
   if (f.drop && !(x.price_history || []).some(h => h.to < h.from)) return false;
   if (f.priv && x.is_private !== true) return false;
   if (f.ours && !x.building_id) return false;
+  if (S.mode === 'buy' && f.proj && !x.pid) return false;
+  if (f.below) { const v = vsDistrict(x); if (v == null || v > -5) return false; }
   if (f.lift) { const b = x.building_id && S.buildings.find(y => y.id === x.building_id); if (!(b && b.has_lift) && !LIFT_RE.test(x.title || '')) return false; }
   return true;
 }
 function ffCount() {
   const f = S.ff, d = DEF_FF(); let n = 0;
   if (f.pmin) n++; if (f.pmax) n++; if (f.area) n++; if (f.rooms) n++; if (f.d.size) n++; if (f.src.size) n++;
-  for (const k of ['isNew', 'drop', 'priv', 'ours', 'lift']) if (f[k]) n++;
+  for (const k of ['isNew', 'drop', 'priv', 'ours', 'lift', 'below']) if (f[k]) n++;
+  if (S.mode === 'buy' && f.proj) n++;
   return n;
 }
 function renderFeed() {
@@ -910,14 +946,15 @@ function renderFeed() {
   $('feedCnt').textContent = view.length || '';
   $('favCnt').textContent = favs.length || '';
   $('feedFiltN').textContent = ffCount() || '';
-  if ($('ffCount')) $('ffCount').textContent = `Показано ${view.length} из ${all.length} объявлений в базе (все 23 района, до 2200 €, от 38 м²).`;
+  if ($('ffCount')) $('ffCount').textContent = `Показано ${view.length} из ${all.length} объявлений в базе (все 23 района, ${S.mode === 'buy' ? 'продажа до 1,5 млн €, от 30 м²' : 'аренда до 2200 €, от 38 м²'}).`;
   if (S.listView === 'ours') return;
   let arr = S.listView === 'fav' ? favs : view;
   const sort = $('feedSort').value;
   arr = [...arr].sort(sort === 'cheap' ? (a, b) => a.price - b.price : sort === 'm2' ? (a, b) => (a.price / (a.area_m2 || 99)) - (b.price / (b.area_m2 || 99))
+    : sort === 'deal' ? (a, b) => (vsDistrict(a) ?? 99) - (vsDistrict(b) ?? 99)
     : (a, b) => new Date(b.first_seen) - new Date(a.first_seen));
   const lim = S.feedLim || 60;
-  $('feedHint').textContent = S.listView === 'fav' ? (arr.length ? '' : 'Пока пусто — жми ★ на объявлениях в ленте или в карточке дома.') : `${view.length} объявлений. Зелёная полоска — новое, «подходит» — под ваши требования.`;
+  $('feedHint').textContent = S.listView === 'fav' ? (arr.length ? '' : 'Пока пусто — жми ★ на объявлениях в ленте или в карточке дома.') : S.mode === 'buy' ? `${view.length} квартир на продажу. «% к району» — цена за м² против медианы района; кредит и доходность — по допущениям во вкладке «Расчёт».` : `${view.length} объявлений. Зелёная полоска — новое, «подходит» — под ваши требования.`;
   $('feed').innerHTML = arr.slice(0, lim).map(feedCard).join('') + (arr.length > lim ? `<button class="more" id="feedMore">ещё ${Math.min(60, arr.length - lim)} из ${arr.length - lim}</button>` : '');
   const more = $('feedMore'); if (more) more.onclick = () => { S.feedLim = lim + 60; renderFeed(); };
 }
@@ -927,14 +964,21 @@ function renderFFPanel() {
   $('ffPmin').value = f.pmin || ''; $('ffPmax').value = f.pmax || ''; $('ffArea').value = f.area || ''; $('ffRooms').value = f.rooms || 0;
   $('ffDistricts').innerHTML = Array.from({ length: 23 }, (_, i) => i + 1).map(n => `<button class="chip${f.d.has(n) ? ' on' : ''}" data-d="${n}">${n}</button>`).join('');
   $('ffSources').innerHTML = ['willhaben', 'immoscout'].map(sname => `<button class="chip${f.src.has(sname) ? ' on' : ''}" data-s="${sname}">${sname}</button>`).join('');
-  for (const [id, k] of [['ffNew', 'isNew'], ['ffDrop', 'drop'], ['ffPrivate', 'priv'], ['ffOurs', 'ours'], ['ffLift', 'lift']]) $(id).checked = !!f[k];
+  for (const [id, k] of FF_CB) $(id).checked = !!f[k];
+  const buy = S.mode === 'buy';
+  $('ffPTitle').textContent = buy ? 'Цена покупки, €' : 'Цена в месяц, €';
+  $('ffPpre').innerHTML = (buy ? [[300000, '300k'], [400000, '400k'], [500000, '500k'], [700000, '700k']] : [[1000, 'до 1000'], [1300, 'до 1300'], [1500, 'до 1500'], [2000, 'до 2000']])
+    .map(([v, t]) => `<button data-v="${v}">${t}</button>`).join('');
+  $('ffPmin').step = $('ffPmax').step = buy ? 10000 : 50;
+  $('ffBuyOnly').hidden = !buy;
 }
+const FF_CB = [['ffNew', 'isNew'], ['ffDrop', 'drop'], ['ffPrivate', 'priv'], ['ffOurs', 'ours'], ['ffLift', 'lift'], ['ffProj', 'proj'], ['ffBelow', 'below']];
 function ffChanged() { saveFF(); S.feedLim = 60; renderFeed(); pushMarket(); }
 $('feedFiltBtn').onclick = () => { if (!S.ff) S.ff = DEF_FF(); renderFFPanel(); $('feedPanel').hidden = !$('feedPanel').hidden; $('lview').hidden = true; };
 $('feedPanelClose').onclick = () => $('feedPanel').hidden = true;
 for (const [id, k] of [['ffPmin', 'pmin'], ['ffPmax', 'pmax'], ['ffArea', 'area'], ['ffRooms', 'rooms']])
   $(id).oninput = () => { S.ff[k] = +$(id).value || null; ffChanged(); };
-for (const [id, k] of [['ffNew', 'isNew'], ['ffDrop', 'drop'], ['ffPrivate', 'priv'], ['ffOurs', 'ours'], ['ffLift', 'lift']])
+for (const [id, k] of FF_CB)
   $(id).onchange = () => { S.ff[k] = $(id).checked; ffChanged(); };
 $('ffPpre').onclick = e => { const v = e.target.dataset.v; if (!v) return; S.ff.pmax = +v; $('ffPmax').value = v; ffChanged(); };
 $('ffDistricts').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; const n = +c.dataset.d; S.ff.d.has(n) ? S.ff.d.delete(n) : S.ff.d.add(n); c.classList.toggle('on'); ffChanged(); };
@@ -945,6 +989,7 @@ $('ffReset').onclick = () => { S.ff = { ...DEF_FF(), pmax: null, area: null, roo
 /* ---------- просмотр объявления внутри приложения ---------- */
 S.lcache = {};
 async function openListing(x) {
+  S.lvX = x;
   $('feedPanel').hidden = true;
   $('detail').hidden = true;
   const box = $('lviewBody'), b = x.building_id && S.buildings.find(y => y.id === x.building_id);
@@ -970,10 +1015,26 @@ async function openListing(x) {
     ${d.lift === true ? '<div class="amen"><span>Лифт упомянут</span></div>' : ''}
     ${(d.facts || []).length ? `<dl class="rows lv-facts">${d.facts.map(f => `<dt>${esc(f.k)}</dt><dd>${esc(f.v)}</dd>`).join('')}</dl>` : ''}
     ${(d.equipment || []).length ? `<div class="amen">${d.equipment.map(e => `<span>${esc(e)}</span>`).join('')}</div>` : ''}
+    ${S.mode === 'buy' ? buyBlock(x) : ''}
     ${d.description ? `<div class="lv-desc">${esc(d.description).replace(/\n/g, '<br>')}</div>` : ''}
     ${(d.extra || []).map(t => `<div class="lv-desc sub">${esc(t).replace(/\n/g, '<br>')}</div>`).join('')}
     ${d.contact ? `<div class="src">Контакт: ${esc(d.contact)}</div>` : ''}`;
   bindLv(x, b);
+}
+function buyBlock(x) {
+  const c = buyCalc(x), st = S.stats[x.district] || {}, v = vsDistrict(x);
+  return `<div class="buybox"><div class="ftitle">Покупка: сколько это стоит на самом деле</div>
+    <dl class="rows">
+      <dt>Цена за м²</dt><dd>${ppmOf(x) ? eur(ppmOf(x)) : '—'}${st.buy_ppm ? ` · медиана района ${eur(st.buy_ppm)}${v != null ? ` (${v > 0 ? '+' : '−'}${Math.abs(Math.round(v))}%)` : ''}` : ''}</dd>
+      ${c.parts.map(([k, val]) => `<dt>${k}</dt><dd>${eur(val)}</dd>`).join('')}
+      <dt><b>Расходы сверху</b></dt><dd><b>${eur(c.fees)}</b> (${(c.fees / c.p * 100).toFixed(1)}%)</dd>
+      <dt><b>Нужно своих денег</b></dt><dd><b>${eur(c.cash)}</b> = ${S.c.eq}% взнос + расходы</dd>
+      <dt>Кредит</dt><dd>${eur(c.loan)} · ${S.c.rate}% · ${S.c.years} лет</dd>
+      <dt><b>Платёж в месяц</b></dt><dd><b>${eur(c.monthly)}</b> + Betriebskosten/ремфонд</dd>
+      <dt>Нужен доход «на руки»</dt><dd>от ${eur(c.income)}/мес на семью (банк: платёж ≤ 40%)</dd>
+      ${c.rentEq ? `<dt>Аренда такой квартиры тут</dt><dd>≈ ${eur(c.rentEq)}/мес · валовая доходность ${c.yld.toFixed(1)}%</dd>` : ''}
+    </dl>
+    <div class="src">Оценка, не оффер банка. Правила FMA: 20% своих, платёж ≤ 40% дохода, до 35 лет. Медианы — по нашим собранным объявлениям (${st.buy_n || 0} продажа / ${st.rent_n || 0} аренда в районе).</div></div>`;
 }
 function bindLv(x, b) {
   const st = $('lviewBody').querySelector('.star'); if (st) st.onclick = () => toggleFav(x.mid);
@@ -1113,7 +1174,7 @@ $('feedRefresh').onclick = async () => {
   let ds = [...(S.ff?.d || [])];
   if (ds.length > 8) { toast('За раз можно обновить до 8 районов — выбери поменьше в фильтрах ленты', 4000); return; }
   btn.disabled = true; btn.textContent = '↻ Собираю…';
-  const { data, error } = await sb.functions.invoke('refresh', { body: { districts: ds } });
+  const { data, error } = await sb.functions.invoke('refresh', { body: { districts: ds, deal: S.mode } });
   if (error || data?.error) { toast('Не запустилось: ' + (data?.error || error.message), 5000); btn.disabled = false; btn.textContent = '↻ Обновить'; return; }
   toast(`Собираю свежие объявления: районы ${data.districts.join(', ')}. Около ${Math.round(data.eta_sec / 60) || 1} мин — лента обновится сама.`, 6000);
   const before = (S.market || []).length;
@@ -1160,9 +1221,14 @@ $('grab').onclick = () => {
 $('themeBtn').onclick = () => { const t = THEME_ORDER[(THEME_ORDER.indexOf(S.theme) + 1) % THEME_ORDER.length]; applyTheme(t); toast('Тема: ' + THEME_NAMES[t], 1400); };
 $('modeSeg').onclick = e => {
   const m = e.target.dataset.mode; if (!m) return;
+  if (m === S.mode) return;
   S.mode = m; seg('modeSeg', m, 'mode');
-  if (m === 'buy') toast('Режим покупки — этап 8. Пока показываются только дома, отмеченные для покупки.', 4000);
-  applyFilters();
+  S.ff = readFF() || DEF_FF(); S.feedLim = 60; $('lview').hidden = true;
+  if (!$('feedPanel').hidden) renderFFPanel();
+  document.body.classList.toggle('buy', m === 'buy');
+  toast(m === 'buy' ? 'Покупка: загружаю квартиры на продажу…' : 'Аренда', 1800);
+  S.market = []; S.mkGroups = []; applyFilters();
+  loadMarket().then(() => m === 'buy' && toast(`Продажа: ${S.market.length} объявлений. Допущения ипотеки — во вкладке «Расчёт».`, 3500));
 };
 addEventListener('resize', () => map.setPadding(S.selected ? detailPad() : basePad()));
 map.on('moveend', () => { if ($('lSun').checked && !S.selected) pushSun(); });
@@ -1218,6 +1284,7 @@ function bindCalc(id, key, out, fmt) {
   const upd = () => {
     S.c[key] = +el.value; $(out).textContent = fmt(S.c[key]);
     document.querySelectorAll(`.presets[data-target="${id}"] button`).forEach(b => b.classList.toggle('on', +b.dataset.v === S.c[key]));
+    if (['eq', 'rate', 'years'].includes(key)) { localSet('c_' + key, S.c[key]); if (S.mode === 'buy') { renderFeed(); const x = S.lvX; if (x && !$('lview').hidden) { const bb = $('lviewBody').querySelector('.buybox'); if (bb) bb.outerHTML = buyBlock(x); } } }
     if (S.selected) renderDetail(S.selected);
   };
   el.oninput = upd; upd();
@@ -1225,6 +1292,9 @@ function bindCalc(id, key, out, fmt) {
 bindCalc('cMonths', 'months', 'vMonths', v => v + ' мес');
 bindCalc('cFurn', 'furn', 'vFurn', eur);
 bindCalc('cRec', 'rec', 'vRec', v => v + ' %');
+bindCalc('cEq', 'eq', 'vEq', v => v + ' %');
+bindCalc('cRate', 'rate', 'vRate', v => String(v).replace('.', ',') + ' %');
+bindCalc('cYears', 'years', 'vYears', v => v + ' лет');
 document.querySelectorAll('.presets').forEach(p => p.onclick = e => {
   const v = e.target.dataset.v; if (!v) return;
   const inp = $(p.dataset.target); inp.value = v; inp.oninput();

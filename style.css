@@ -289,3 +289,10 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .queuebar{background:var(--amber-soft);border:1px solid var(--amber);border-radius:12px;padding:8px 10px;font-size:12px;margin-bottom:8px;color:var(--ink)}
 .bgal{margin-top:10px}.bgal a{flex:none}.bgal img{height:150px}
 .fbtn:disabled{opacity:.6}
+/* покупка */
+.fbuy{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px;font-size:11px;color:var(--muted,#9aa1aa)}
+.fbuy em{font-style:normal;padding:1px 6px;border-radius:6px;background:rgba(255,255,255,.06)}
+.vs.good{color:var(--good);background:rgba(74,222,128,.12)}.vs.bad{color:var(--bad);background:rgba(248,113,113,.12)}
+.nb{color:#fbbf24;background:rgba(251,191,36,.12)!important}
+.buybox{margin:12px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}
+.buybox dl.rows dd b,.buybox dl.rows dt b{color:inherit}
