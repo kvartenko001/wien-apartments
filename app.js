@@ -365,6 +365,7 @@ async function load() {
     return;
   }
   applyFilters();
+  renderQueue();
   pushTransit();
 }
 
@@ -496,6 +497,8 @@ function renderDetail(id) {
       <div class="fact"><b>${b.height_m ? Math.round(b.height_m) + ' м' : (b.floors_total || '—')}</b><span>${b.height_m ? 'высота' : 'этажей'}</span></div>
       <div class="fact"><b>${b.hwb_class || (b.fgee ? 'fGEE ' + b.fgee : '—')}</b><span>энергия</span></div>
     </div>
+    ${(b.photos || []).length ? `<div class="gal bgal">${b.photos.slice(0, 30).map(p => `<a href="${esc(p.page || p.url)}" target="_blank" rel="noopener" title="${esc(p.source || '')}"><img src="${esc(p.url)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.remove()"></a>`).join('')}</div>
+      <div class="src">Фото: ${[...new Set(b.photos.map(p => p.source))].map(esc).join(', ')} · нажми на фото — откроется источник</div>` : ''}
     <div class="amen">${am}</div>
     ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
     ${b.pass ? '' : `<div class="why">Не проходит: ${b.why.join(' · ')}</div>`}
@@ -1102,6 +1105,34 @@ function pushSun() {
     }
   }
   map.getSource('sun').setData(fc(feats));
+}
+
+/* ---------- кнопки: обновить ленту сейчас / очередь разбора ---------- */
+$('feedRefresh').onclick = async () => {
+  const btn = $('feedRefresh');
+  let ds = [...(S.ff?.d || [])];
+  if (ds.length > 8) { toast('За раз можно обновить до 8 районов — выбери поменьше в фильтрах ленты', 4000); return; }
+  btn.disabled = true; btn.textContent = '↻ Собираю…';
+  const { data, error } = await sb.functions.invoke('refresh', { body: { districts: ds } });
+  if (error || data?.error) { toast('Не запустилось: ' + (data?.error || error.message), 5000); btn.disabled = false; btn.textContent = '↻ Обновить'; return; }
+  toast(`Собираю свежие объявления: районы ${data.districts.join(', ')}. Около ${Math.round(data.eta_sec / 60) || 1} мин — лента обновится сама.`, 6000);
+  const before = (S.market || []).length;
+  const end = Date.now() + (data.eta_sec + 60) * 1000;
+  const tick = async () => {
+    await loadMarket();
+    if (Date.now() < end) setTimeout(tick, 30000);
+    else { btn.disabled = false; btn.textContent = '↻ Обновить'; toast(`Готово. В базе ${S.market.length} объявлений (было ${before}).`, 4000); }
+  };
+  setTimeout(tick, 30000);
+};
+function renderQueue() {
+  const q = S.buildings.filter(b => b.research_status === 'queued');
+  const bar = $('queueBar'); if (!bar) return;
+  bar.hidden = !q.length;
+  if (!q.length) return;
+  const slots = [8, 11, 14, 17, 20].map(h => { const d = new Date(); d.setHours(h, 13, 0, 0); return d; });
+  const next = slots.find(d => d > new Date()) || (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 13, 0, 0); return d; })();
+  bar.innerHTML = `⏳ <b>${q.length}</b> ${q.length === 1 ? 'дом ждёт' : 'дома ждут'} разбора. Claude разберёт автоматически в ${next.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}${next.getDate() !== new Date().getDate() ? ' завтра' : ''} (проверяет очередь в 8, 11, 14, 17 и 20 часов).`;
 }
 
 /* ---------- камера ---------- */

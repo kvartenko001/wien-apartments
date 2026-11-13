@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.css" rel="stylesheet">
-<link href="style.css?v=1794561582" rel="stylesheet">
+<link href="style.css?v=1794563009" rel="stylesheet">
 </head>
 <body class="theme-a">
 
@@ -46,6 +46,7 @@
     <div class="seg small listseg" id="listSeg"><button data-v="ours" class="on">Наши дома</button><button data-v="feed">Лента <b id="feedCnt"></b></button><button data-v="fav">★ Избранное <b id="favCnt"></b></button></div>
     <div id="feedBox" hidden>
       <div class="feedbar">
+        <button class="fbtn" id="feedRefresh" title="Собрать свежие объявления прямо сейчас">↻ Обновить</button>
         <button class="fbtn" id="feedFiltBtn">⚙ Фильтры ленты <b id="feedFiltN"></b></button>
         <select id="feedSort"><option value="new">сначала новые</option><option value="cheap">сначала дешёвые</option><option value="m2">дешевле за м²</option></select>
       </div>
@@ -53,6 +54,7 @@
       <div id="feed"></div>
     </div>
     <div id="oursBox">
+    <div class="queuebar" id="queueBar" hidden></div>
     <button class="addbtn" id="addBtn">＋ Добавить дом — название ЖК или адрес</button>
     <div class="addbox" id="addBox" hidden>
       <form id="addForm"><input id="addQ" placeholder="Danube Flats · Arsenalstraße 8 · …" autocomplete="off"><button>Найти</button></form>
@@ -202,7 +204,7 @@
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="config.js?v=1794561582"></script>
-<script src="app.js?v=1794561582"></script>
+<script src="config.js?v=1794563009"></script>
+<script src="app.js?v=1794563009"></script>
 </body>
 </html>
