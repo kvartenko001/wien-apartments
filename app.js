@@ -41,7 +41,8 @@ const S = {
     budget: CFG.BUDGET_DEFAULT, basis: 'gross', rooms: 2, area: 45,
     amen: new Set(['has_lift']), districts: new Set(), status: new Set(), hideFail: false
   },
-  c: { months: 36, furn: 10000, rec: 40 }
+  c: { months: 36, furn: 10000, rec: 40 },
+  market: [], favs: new Set(), osm: [], listView: 'ours'
 };
 
 const $ = id => document.getElementById(id);
@@ -201,6 +202,38 @@ map.on('style.load', async () => {
       paint: { 'text-color': c.color, 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
   }
 
+  // рядом с домом: магазины, аптеки, почта, боксы (OSM)
+  map.addSource('osm', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'osm-dot', type: 'circle', source: 'osm', slot: 'top', minzoom: 11, layout: { visibility: 'none' },
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.5, 16, 6], 'circle-color': ['get', 'color'],
+             'circle-stroke-color': '#0b0d10', 'circle-stroke-width': 1.2 } });
+  map.addLayer({ id: 'osm-label', type: 'symbol', source: 'osm', slot: 'top', minzoom: 14.5, layout: { visibility: 'none',
+      'text-field': ['get', 'label'], 'text-size': 10.5, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true,
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'] },
+    paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
+  map.on('click', 'osm-dot', e => { const p = e.features[0].properties;
+    new mapboxgl.Popup({ closeButton: false, className: 'mkpop' }).setLngLat(e.lngLat)
+      .setHTML(`<b>${esc(p.label)}</b>${p.name && p.name !== p.label ? '<br>' + esc(p.name) : ''}${p.hours ? '<br><small>' + esc(p.hours) + '</small>' : ''}`).addTo(map); });
+
+  // объявления из ленты
+  map.addSource('mk', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'mk-dot', type: 'circle', source: 'mk', slot: 'top', layout: { visibility: 'none' },
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, ['case', ['get', 'isNew'], 4, 3], 16, ['case', ['get', 'isNew'], 8, 6]],
+             'circle-color': ['case', ['get', 'fav'], '#facc15', ['get', 'fit'], '#5eead4', '#6b7280'],
+             'circle-stroke-color': ['case', ['get', 'isNew'], '#ffffff', '#0b0d10'], 'circle-stroke-width': ['case', ['get', 'isNew'], 2, 1] } });
+  map.on('click', 'mk-dot', e => mkPopup(+e.features[0].properties.id, e.lngLat));
+  for (const id of ['mk-dot', 'osm-dot']) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
+
+  // солнце
+  map.addSource('sun', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'sun-ring', type: 'line', source: 'sun', slot: 'top', filter: ['==', ['get', 't'], 'ring'], layout: { visibility: 'none' },
+    paint: { 'line-color': '#e8eaed', 'line-opacity': 0.35, 'line-width': 1, 'line-dasharray': [1, 2] } });
+  map.addLayer({ id: 'sun-line', type: 'line', source: 'sun', slot: 'top', filter: ['==', ['get', 't'], 'ray'], layout: { visibility: 'none', 'line-cap': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'w'], 'line-dasharray': [2, 1.2] } });
+  map.addLayer({ id: 'sun-label', type: 'symbol', source: 'sun', slot: 'top', filter: ['==', ['get', 't'], 'label'], layout: { visibility: 'none',
+      'text-field': ['get', 'text'], 'text-size': ['get', 'size'], 'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'], 'text-allow-overlap': true },
+    paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#000', 'text-halo-width': 1.4 } });
+
   // кандидат на добавление
   map.addSource('cand', { type: 'geojson', data: fc([]) });
   map.addLayer({ id: 'cand-fill', type: 'fill', source: 'cand', slot: 'top', paint: { 'fill-color': '#ffb300', 'fill-opacity': 0.35 } });
@@ -308,6 +341,7 @@ async function load() {
     sb.from('poi_map').select('id,label,owner,address,lng,lat'),
     sb.from('transit_lines_v2').select('mode,ref,colour,geom')
   ]);
+  loadMarket(); loadOsm();
   if (b.error) { toast('Ошибка базы: ' + b.error.message, 6000); return; }
   S.buildings = b.data.map(x => {
     const parts = geomParts(x.footprint).map(poly => ringCentroid(poly[0]));
@@ -371,7 +405,7 @@ function evaluate(b) {
   if (S.f.districts.size && !S.f.districts.has(b.district)) why.push('не тот район');
   if (S.f.status.size && !S.f.status.has(b.our_status)) why.push('статус');
   if (S.mode === 'buy' && !(b.interest_mode || []).includes('buy')) why.push('не для покупки');
-  const ls = S.listings.filter(l => l.building_id === b.id && l.status === 'active' && l.deal_type === S.mode);
+  const ls = S.mode === 'rent' ? buildingListings(b) : S.listings.filter(l => l.building_id === b.id && l.status === 'active' && l.deal_type === S.mode);
   const fit = ls.filter(l => {
     const price = S.f.basis === 'gross' ? +l.rent_gross : +l.monthly_total;
     return price <= S.f.budget && (+l.rooms || 0) >= S.f.rooms && (+l.area_m2 || 0) >= S.f.area;
@@ -392,6 +426,7 @@ function applyFilters() {
   renderList();
   pushMapData();
   if (S.selected) renderDetail(S.selected);
+  renderFeed(); pushMarket();
 }
 
 /* ---------- список ---------- */
@@ -435,6 +470,7 @@ function select(id) {
   map.flyTo({ center: [b.lng, b.lat], zoom, pitch: 60, bearing: -25, padding: detailPad(), duration: 2400, essential: true, curve: 1.4 });
   renderList();
   pushMapData();
+  if ($('lSun').checked) pushSun();
 }
 function closeDetail() {
   S.selected = null; stopOrbit(); clearRoute();
@@ -448,52 +484,49 @@ $('detailClose').onclick = closeDetail;
 
 function renderDetail(id) {
   const b = S.buildings.find(x => x.id === id); if (!b) return;
-  const { months, furn, rec } = S.c;
   const am = AMEN.map(([k, t]) => `<span class="${b[k] ? '' : 'no'}">${t}</span>`).join('');
-  const cards = b.ls.map(l => {
-    const furnished = l.furnished === 'full';
-    const setupF = furnished ? 0 : furn;
-    const sunk = +l.setup_sunk || 0;
-    const avg = +l.monthly_total + (sunk + setupF * (1 - rec / 100)) / months;
-    const ok = (S.f.basis === 'gross' ? +l.rent_gross : +l.monthly_total) <= S.f.budget;
-    return `<div class="lcard">
-      <div class="lhead">
-        <b>${(+l.area_m2).toFixed(0)} м² · ${+l.rooms} комн.${l.floor ? ' · ' + l.floor + ' эт.' : ''}${furnished ? ' · с мебелью' : ''}</b>
-        ${l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">источник ↗</a>` : ''}
-      </div>
-      <dl class="rows">
-        <dt>Грязная аренда</dt><dd${ok ? '' : ' style="color:var(--bad)"'}>${eur(l.rent_gross)}</dd>
-        <dt>Полная в месяц</dt><dd class="hl">${eur(l.monthly_total)}</dd>
-        <dt>€/м²</dt><dd>${l.price_per_m2 ? (+l.price_per_m2).toFixed(2) : '—'}</dd>
-        <div class="sep"></div>
-        <dt>Обустройство</dt><dd>${setupF ? eur(setupF) : '—'}</dd>
-        <dt>Безвозвратно разово</dt><dd>${eur(sunk)}</dd>
-        <dt>Залог (вернётся)</dt><dd>${eur(l.kaution_amount)}</dd>
-        <div class="sep"></div>
-        <dt>В среднем за ${months} мес</dt><dd>${eur(avg)}</dd>
-      </dl>
-    </div>`;
-  }).join('') || '<p class="hint">Активных объявлений пока нет.</p>';
-
+  const ls = buildingListings(b).sort((x, y) => (+x.rent_gross || 9e9) - (+y.rent_gross || 9e9));
+  const cards = ls.map(listingCard).join('');
   $('detailBody').innerHTML = `
     <div class="dname">${esc(b.name || b.street)}</div>
-    <div class="daddr">${esc([b.street, b.house_no].filter(Boolean).join(' '))}, ${esc(b.zip || '')} · ${b.district}-й район · ${STATUS[b.our_status] || ''}</div>
+    <div class="daddr">${esc([b.street, b.house_no].filter(Boolean).join(' '))}, ${esc(b.zip || '')} · ${b.district ? b.district + '-й район' : ''} · ${STATUS[b.our_status] || ''}</div>
     <div class="facts">
       <div class="fact"><b>${b.year_built || '—'}</b><span>год</span></div>
       <div class="fact"><b>${b.height_m ? Math.round(b.height_m) + ' м' : (b.floors_total || '—')}</b><span>${b.height_m ? 'высота' : 'этажей'}</span></div>
       <div class="fact"><b>${b.hwb_class || (b.fgee ? 'fGEE ' + b.fgee : '—')}</b><span>энергия</span></div>
     </div>
     <div class="amen">${am}</div>
-    <div class="noisebox" id="noiseBox"><b>Шум у дома</b><span class="rmeta">считаю…</span></div>
     ${b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
     ${b.pass ? '' : `<div class="why">Не проходит: ${b.why.join(' · ')}</div>`}
-    ${cards}
-    <div class="routes"><div class="rhead"><b>Дорога</b><span class="rwhen">${esc(routeWhenLabel())}</span></div>
+    <div class="lhead2"><b>Объявления</b><span class="rmeta">${ls.length ? ls.length + ' · листай →' : 'сейчас нет'}</span></div>
+    <div class="lscroll">${cards || '<p class="hint">Сейчас в этом доме ничего не сдаётся. Сборщик проверяет каждое утро.</p>'}</div>
+    ${section('noise', 'Шум у дома', '<div id="noiseBox"><span class="rmeta">считаю…</span></div>', '<span id="noiseSum"></span>')}
+    ${section('route', 'Дорога', `<div class="rwhen">${esc(routeWhenLabel())}</div>
       <div id="routeList"></div>
       <form class="rcustom" id="routeCustom"><input id="routeQ" placeholder="Свой адрес: хобби, друзья…" autocomplete="off"><button>→</button></form>
-      <div class="src">Маршруты: Wiener Linien / VOR (открытые данные)</div></div>`;
+      <div class="src">Транспорт: Wiener Linien / VOR · машина: Mapbox</div>`, '<span id="routeSum"></span>')}`;
+  $('detailBody').querySelectorAll('.sec-h').forEach(h => h.onclick = () => {
+    const sec = h.parentElement, k = sec.dataset.k, open = !sec.classList.contains('open');
+    sec.classList.toggle('open', open); localSet('sec_' + k, open ? '1' : '0');
+  });
+  $('detailBody').querySelector('.lscroll').onclick = e => { const st = e.target.closest('.star'); if (st) { e.preventDefault(); toggleFav(+st.dataset.id); } };
   loadRoutes(b);
   loadNoise(b);
+}
+function section(k, title, body, sum) {
+  const open = localGet('sec_' + k, k === 'route' ? '0' : '1') === '1';
+  return `<div class="sec${open ? ' open' : ''}" data-k="${k}"><div class="sec-h"><i class="chev">›</i><b>${title}</b>${sum}</div><div class="sec-b">${body}</div></div>`;
+}
+function listingCard(l) {
+  const days = l.first_seen ? Math.max(0, Math.round((Date.now() - new Date(l.published_at || l.first_seen)) / 864e5)) : null;
+  const ppm = l.rent_gross && l.area_m2 ? (l.rent_gross / l.area_m2).toFixed(1) : null;
+  const drop = (l.price_history || []).filter(x => x.to < x.from).length;
+  return `<a class="mcard${l.rent_gross > S.f.budget ? ' over' : ''}" href="${esc(l.url || '#')}" target="_blank" rel="noopener">
+    <div class="mtop"><b>${eur(l.rent_gross)}</b>${l.mid ? `<span class="star${S.favs.has(l.mid) ? ' on' : ''}" data-id="${l.mid}">★</span>` : ''}</div>
+    <div class="mmeta">${l.area_m2 ? Math.round(l.area_m2) + ' м²' : '? м²'} · ${l.rooms ? +l.rooms + ' комн.' : '—'}${ppm ? ' · ' + ppm + ' €/м²' : ''}</div>
+    <div class="mtitle">${esc((l.title || '').slice(0, 70))}</div>
+    <div class="msrc">${(l.srcs || [l.source || 'наша база']).map(x => `<span>${esc(x)}</span>`).join('')}${days != null ? `<em>${days ? days + ' дн.' : 'новое'}</em>` : ''}${drop ? '<em class="drop">цена ↓</em>' : ''}</div>
+  </a>`;
 }
 
 /* ---------- дорога: как WienMobil (маршрутизатор Wiener Linien через нашу функцию) ---------- */
@@ -538,6 +571,7 @@ function routeDests() { return [...S.poi.map(p => ({ id: p.id, label: p.label, o
 
 async function loadRoutes(b) {
   const box = $('routeList'); if (!box) return;
+  S.rsum = {};
   const dests = routeDests();
   box.innerHTML = dests.map(d => `<div class="rrow" data-dest="${esc(d.id)}"><div class="rtop"><span class="rlabel"><i class="dot o-${d.owner || 'both'}"></i>${esc(d.label)}</span><span class="rmin">…</span></div><div class="rchips"></div><div class="ralts" hidden></div></div>`).join('');
   box.onclick = e => {
@@ -569,6 +603,7 @@ async function loadRoutes(b) {
       if (S.selected !== b.id) return;
       if (!t) { row.querySelector('.rmin').textContent = 'нет маршрута'; return; }
       row.querySelector('.rmin').innerHTML = `<b>${t.duration}</b> мин`;
+      setRouteSum(d, t.duration);
       row.querySelector('.rchips').innerHTML = tripChips(t) +
         `<span class="rmeta">${t.interchanges ? t.interchanges + ' пересад.' : 'без пересадок'} · пешком ${t.walk} мин</span>`;
     } catch (err) {
@@ -670,9 +705,11 @@ async function loadNoise(b) {
       const f = x => x ? (x.max >= 75 ? '75+' : `${x.max}–${x.max + 4}`) : '<45';
       return `<div class="nrow"><span>${name}</span><span class="${dbClass(d?.max || 0)}">днём ${d ? f(d) : '<55'} дБ</span><span class="${dbClass((n?.max || 0) + 10)}">ночью ${f(n)} дБ</span></div>`;
     }).join('');
-    box.innerHTML = `<b>Шум у дома</b><span class="rmeta">самый громкий фасад · карты 2022</span>${rows || '<div class="nrow"><span>Тихо: ни один источник не даёт у фасада 55 дБ днём</span></div>'}`;
+    box.innerHTML = `<span class="rmeta">самый громкий фасад · карты 2022</span>${rows || '<div class="nrow"><span>Тихо: ни один источник не даёт у фасада 55 дБ днём</span></div>'}`;
+    const mx = Math.max(0, ...Object.values(r).map(x => x?.lden?.max || 0));
+    if ($('noiseSum')) $('noiseSum').innerHTML = mx ? `<span class="${dbClass(mx)}">до ${mx >= 75 ? '75+' : mx + 4} дБ днём</span>` : '<span class="n-lo">тихо</span>';
   } catch (e) {
-    box.innerHTML = `<b>Шум у дома</b><span class="rmeta">не получилось: ${esc(e.message)}</span>`;
+    box.innerHTML = `<span class="rmeta">не получилось: ${esc(e.message)}</span>`;
   }
 }
 
@@ -759,6 +796,201 @@ $('acOk').onclick = () => confirmAdd(false);
 $('acPoint').onclick = () => confirmAdd(true);
 $('acCancel').onclick = cancelAdd;
 
+function setRouteSum(d, min) {
+  if (d.id === 'center' || String(d.id).startsWith('c')) return;
+  S.rsum[d.id] = { min, label: d.owner === 'p' ? 'он' : d.owner === 'a' ? 'Ариша' : 'зал' };
+  const el = $('routeSum'); if (!el) return;
+  el.textContent = Object.values(S.rsum).sort((a, b) => a.label.localeCompare(b.label)).map(x => `${x.label} ${x.min}`).join(' · ') + ' мин';
+}
+
+/* ---------- рынок: объявления со всех сайтов (собираются каждое утро) ---------- */
+const MK_COLS = 'id,source,url,title,street,house_no,zip,district,lng,lat,price,area_m2,rooms,is_private,published_at,first_seen,price_history,building_id';
+async function loadMarket() {
+  const [m, f] = await Promise.all([
+    sb.from('market_listings').select(MK_COLS).is('removed_at', null).order('first_seen', { ascending: false }).limit(5000),
+    sb.from('market_favorites').select('listing_id')
+  ]);
+  if (m.error) { console.warn(m.error); return; }
+  S.market = (m.data || []).map(x => ({ ...x, price: +x.price || null, area_m2: +x.area_m2 || null, rooms: +x.rooms || null }));
+  S.favs = new Set((f.data || []).map(x => +x.listing_id));
+  S.mkGroups = groupMarket(S.market);
+  applyFilters();
+  renderFeed();
+}
+// одна квартира на нескольких сайтах — одна карточка
+function groupMarket(list) {
+  const g = new Map();
+  for (const x of list) {
+    const k = [x.building_id || ((x.street || '') + (x.house_no || '') + (x.zip || '')), Math.round(x.price || 0), Math.round(x.area_m2 || 0)].join('|');
+    const cur = g.get(k);
+    if (!cur) g.set(k, { ...x, mid: x.id, ids: [x.id], srcs: [x.source], urls: [x.url] });
+    else {
+      cur.ids.push(x.id); if (!cur.srcs.includes(x.source)) cur.srcs.push(x.source); cur.urls.push(x.url);
+      if (new Date(x.first_seen) < new Date(cur.first_seen)) cur.first_seen = x.first_seen;
+      if (S.favs.has(x.id)) cur.mid = x.id;
+    }
+  }
+  return [...g.values()].map(x => ({ ...x, rent_gross: x.price, monthly_total: x.price, status: 'active', deal_type: 'rent', market: true }));
+}
+const isFav = g => g.ids.some(i => S.favs.has(i));
+function buildingListings(b) {
+  const own = S.listings.filter(l => l.building_id === b.id && l.status === 'active' && l.deal_type === 'rent')
+    .map(l => ({ ...l, srcs: [l.source || 'наша база'] }));
+  const mk = (S.mkGroups || []).filter(x => x.building_id === b.id);
+  // наши ручные записи, совпадающие с рыночными, не дублируем
+  const rest = own.filter(l => !mk.some(x => Math.abs((x.price || 0) - (+l.rent_gross || 0)) < 2 && Math.abs((x.area_m2 || 0) - (+l.area_m2 || 0)) < 2));
+  return [...rest, ...mk];
+}
+function fitsFilters(x) {
+  if (!x.price || x.price > S.f.budget) return false;
+  if (x.rooms && x.rooms < S.f.rooms) return false;
+  if (x.area_m2 && x.area_m2 < S.f.area) return false;
+  if (S.f.districts.size && !S.f.districts.has(x.district)) return false;
+  return true;
+}
+async function toggleFav(id) {
+  const g = (S.mkGroups || []).find(x => x.ids.includes(id)); if (!g) return;
+  const on = isFav(g);
+  if (on) { await sb.from('market_favorites').delete().in('listing_id', g.ids); g.ids.forEach(i => S.favs.delete(i)); }
+  else { await sb.from('market_favorites').insert({ listing_id: g.mid }); S.favs.add(g.mid); }
+  toast(on ? 'Убрано из избранного' : 'В избранном ★', 1400);
+  renderFeed(); pushMarket();
+  if (S.selected) { const sc = $('detailBody').querySelector('.lscroll'); if (sc) { const b = S.buildings.find(x => x.id === S.selected); sc.innerHTML = buildingListings(b).sort((x, y) => (+x.rent_gross || 9e9) - (+y.rent_gross || 9e9)).map(listingCard).join(''); } }
+  document.querySelectorAll(`.star[data-id]`).forEach(el => { const gg = (S.mkGroups || []).find(x => x.ids.includes(+el.dataset.id)); if (gg) el.classList.toggle('on', isFav(gg)); });
+}
+function feedCard(x) {
+  const b = x.building_id && S.buildings.find(y => y.id === x.building_id);
+  const days = Math.max(0, Math.round((Date.now() - new Date(x.published_at || x.first_seen)) / 864e5));
+  const isNew = Date.now() - new Date(x.first_seen) < 2 * 864e5;
+  const drop = (x.price_history || []).filter(h => h.to < h.from).length;
+  return `<div class="fcard${isNew ? ' new' : ''}" data-id="${x.mid}">
+    <div class="ftop"><b>${eur(x.price)}</b><span class="fm">${x.area_m2 ? Math.round(x.area_m2) + ' м²' : '? м²'} · ${x.rooms ? x.rooms + ' к.' : '—'}${x.area_m2 ? ' · ' + (x.price / x.area_m2).toFixed(1) + ' €/м²' : ''}</span>
+      <span class="star${isFav(x) ? ' on' : ''}" data-id="${x.mid}">★</span></div>
+    <div class="ft">${esc((x.title || '').slice(0, 90))}</div>
+    <div class="fmeta">${b ? `<span class="ours">${esc(b.name)}</span>` : ''}${esc([x.street, x.house_no].filter(Boolean).join(' ') || '')} ${x.zip || ''}
+      · ${x.srcs.map(s => `<a href="${esc(x.urls[x.srcs.indexOf(s)] || x.url)}" target="_blank" rel="noopener">${s}</a>`).join(' ')}
+      · ${isNew ? '<em class="newb">новое</em>' : days + ' дн.'}${drop ? ' · <em class="drop">цена ↓</em>' : ''}</div>
+  </div>`;
+}
+function renderFeed() {
+  const all = S.mkGroups || [];
+  const fit = all.filter(fitsFilters);
+  const favs = all.filter(isFav);
+  $('feedCnt').textContent = fit.length || '';
+  $('favCnt').textContent = favs.length || '';
+  if (S.listView === 'ours') return;
+  let arr = S.listView === 'fav' ? favs : fit;
+  if (S.listView === 'feed' && $('feedOurs').checked) arr = arr.filter(x => x.building_id);
+  const sort = $('feedSort').value;
+  arr = [...arr].sort(sort === 'cheap' ? (a, b) => a.price - b.price : sort === 'm2' ? (a, b) => (a.price / (a.area_m2 || 99)) - (b.price / (b.area_m2 || 99))
+    : (a, b) => new Date(b.first_seen) - new Date(a.first_seen));
+  const lim = S.feedLim || 60;
+  $('feedHint').textContent = S.listView === 'fav' ? (arr.length ? '' : 'Пока пусто — жми ★ на объявлениях в ленте или в карточке дома.')
+    : `${fit.length} объявлений по фильтрам (потолок ${eur(S.f.budget)}, от ${S.f.rooms} комн., от ${S.f.area} м²${S.f.districts.size ? ', выбранные районы' : ''}). Районы сборщика: 2, 3, 4, 5, 10, 12, 22.`;
+  $('feed').innerHTML = arr.slice(0, lim).map(feedCard).join('') + (arr.length > lim ? `<button class="more" id="feedMore">ещё ${Math.min(60, arr.length - lim)} из ${arr.length - lim}</button>` : '');
+  const more = $('feedMore'); if (more) more.onclick = () => { S.feedLim = lim + 60; renderFeed(); };
+}
+$('feed').onclick = e => {
+  const st = e.target.closest('.star'); if (st) { toggleFav(+st.dataset.id); return; }
+  if (e.target.closest('a')) return;
+  const c = e.target.closest('.fcard'); if (!c) return;
+  const x = (S.mkGroups || []).find(g => g.mid === +c.dataset.id); if (!x) return;
+  if (x.building_id && S.buildings.some(b => b.id === x.building_id)) { select(x.building_id); return; }
+  if (x.lat) { if (!$('lMarket').checked) { $('lMarket').checked = true; syncLayerToggles(); }
+    if (!DESKTOP()) $('sheet').classList.add('min');
+    map.flyTo({ center: [x.lng, x.lat], zoom: 16.2, pitch: 45, padding: basePad(), duration: 1500 });
+    setTimeout(() => mkPopup(x.mid, { lng: x.lng, lat: x.lat }), 1600); }
+};
+$('listSeg').onclick = e => {
+  const v = e.target.closest('button')?.dataset.v; if (!v) return;
+  S.listView = v; S.feedLim = 60;
+  $('listSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  $('oursBox').hidden = v !== 'ours'; $('feedBox').hidden = v === 'ours';
+  $('feedOurs').parentElement.hidden = v === 'fav';
+  renderFeed();
+};
+$('feedSort').onchange = renderFeed; $('feedOurs').onchange = renderFeed;
+function pushMarket() {
+  if (!map.getSource('mk')) return;
+  const now = Date.now();
+  map.getSource('mk').setData(fc((S.mkGroups || []).filter(x => x.lat).map(x => ({ type: 'Feature',
+    properties: { id: x.mid, fit: fitsFilters(x), fav: isFav(x), isNew: now - new Date(x.first_seen) < 2 * 864e5 },
+    geometry: { type: 'Point', coordinates: [x.lng, x.lat] } }))));
+}
+function mkPopup(id, ll) {
+  const x = (S.mkGroups || []).find(g => g.ids.includes(id)); if (!x) return;
+  const pop = new mapboxgl.Popup({ closeButton: true, className: 'mkpop', maxWidth: '280px' }).setLngLat(ll).setHTML(feedCard(x)).addTo(map);
+  pop.getElement().addEventListener('click', e => { const st = e.target.closest('.star'); if (st) toggleFav(+st.dataset.id); });
+}
+
+/* ---------- рядом с домом: OSM ---------- */
+const SHOP_BRANDS = ['Billa', 'Billa Plus', 'Spar', 'Eurospar', 'Interspar', 'Spar Gourmet', 'Hofer', 'Penny', 'Lidl', 'Другие'];
+const SHOP_COL = { Billa: '#facc15', 'Billa Plus': '#eab308', Spar: '#22c55e', Eurospar: '#16a34a', Interspar: '#15803d', 'Spar Gourmet': '#86efac',
+  Hofer: '#60a5fa', Penny: '#f87171', Lidl: '#3b82f6', 'Другие': '#9ca3af' };
+const LOCK_BRANDS = ['Post', 'myflexbox', 'Amazon', 'DHL', 'DPD', 'GLS', 'Другие'];
+const KIND_COL = { pharmacy: '#34d399', post: '#fbbf24', locker: '#c084fc' };
+S.shopOn = new Set(JSON.parse(localGet('shopBrands', JSON.stringify(SHOP_BRANDS.filter(b => b !== 'Другие')))));
+S.lockOn = new Set(JSON.parse(localGet('lockBrands', JSON.stringify(LOCK_BRANDS))));
+function brandChips(id, list, set, key, col) {
+  $(id).innerHTML = list.map(b => `<button class="chip${set.has(b) ? ' on' : ''}" data-b="${esc(b)}">${col ? `<i style="background:${col[b] || '#9ca3af'}"></i>` : ''}${esc(b)}</button>`).join('');
+  $(id).onclick = e => { const c = e.target.closest('.chip'); if (!c) return; const b = c.dataset.b;
+    set.has(b) ? set.delete(b) : set.add(b); c.classList.toggle('on'); localSet(key, JSON.stringify([...set])); pushOsm(); };
+}
+brandChips('shopBrands', SHOP_BRANDS, S.shopOn, 'shopBrands', SHOP_COL);
+brandChips('lockerBrands', LOCK_BRANDS, S.lockOn, 'lockBrands');
+async function loadOsm() {
+  const all = []; let from = 0;
+  while (true) { const r = await sb.from('osm_poi').select('osm_id,kind,brand,name,lng,lat,opening_hours').range(from, from + 999); if (r.error || !r.data.length) break; all.push(...r.data); if (r.data.length < 1000) break; from += 1000; }
+  S.osm = all; pushOsm();
+}
+function pushOsm() {
+  if (!map.getSource('osm')) return;
+  const on = { shop: $('lShops').checked, pharmacy: $('lPharm').checked, post: $('lPost').checked, locker: $('lLocker').checked };
+  const label = p => p.kind === 'shop' ? (p.brand === 'Другие' ? (p.name || 'Супермаркет') : p.brand) : p.kind === 'pharmacy' ? '✚ ' + (p.name || 'Apotheke')
+    : p.kind === 'post' ? (p.brand === 'Post Partner' ? 'Post Partner' : 'Post') : '📦 ' + (p.brand === 'Другие' ? (p.name || 'Paketbox') : p.brand);
+  map.getSource('osm').setData(fc(S.osm.filter(p => on[p.kind] && (p.kind !== 'shop' || S.shopOn.has(p.brand)) && (p.kind !== 'locker' || S.lockOn.has(p.brand)))
+    .map(p => ({ type: 'Feature', properties: { kind: p.kind, label: label(p), name: p.name || '', hours: p.opening_hours || '',
+      color: p.kind === 'shop' ? (SHOP_COL[p.brand] || '#9ca3af') : KIND_COL[p.kind] }, geometry: { type: 'Point', coordinates: [+p.lng, +p.lat] } }))));
+  const any = Object.values(on).some(Boolean);
+  vis(['osm-dot', 'osm-label'], any);
+}
+
+/* ---------- солнце: стороны света, восход и закат у выбранного дома ---------- */
+function sunTimes(date, lat, lng) {
+  const rad = Math.PI / 180, N = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 864e5);
+  const g = 2 * Math.PI / 365 * (N - 1);
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const eot = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const phi = lat * rad, z = 90.833 * rad;
+  const ha = Math.acos(Math.cos(z) / (Math.cos(phi) * Math.cos(decl)) - Math.tan(phi) * Math.tan(decl));
+  const noonUTC = 720 - 4 * lng - eot; // минуты
+  const rise = noonUTC - 4 * ha / rad, set = noonUTC + 4 * ha / rad;
+  const az = Math.acos(Math.sin(decl) / Math.cos(phi)) / rad; // азимут восхода от севера (без рефракции)
+  const tz = (d => { const jan = new Date(d.getFullYear(), 0, 1).getTimezoneOffset(), jul = new Date(d.getFullYear(), 6, 1).getTimezoneOffset(); return 60 + (d.getTimezoneOffset() < Math.max(jan, jul) ? 60 : 0); })(date);
+  const fmt = m => { m = ((m + tz) % 1440 + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(Math.round(m % 60)).padStart(2, '0'); };
+  return { riseAz: az, setAz: 360 - az, rise: fmt(rise), set: fmt(set) };
+}
+function destPt(lng, lat, az, m) { const r = az * Math.PI / 180; return [lng + Math.sin(r) * m / MX, lat + Math.cos(r) * m / MY]; }
+function pushSun() {
+  if (!map.getSource('sun')) return;
+  const b = S.selected && S.buildings.find(x => x.id === S.selected);
+  const c = b ? [b.lng, b.lat] : map.getCenter().toArray();
+  const y = new Date().getFullYear(), R = 260, feats = [];
+  const ring = []; for (let a = 0; a <= 360; a += 6) ring.push(destPt(c[0], c[1], a, R));
+  feats.push({ type: 'Feature', properties: { t: 'ring' }, geometry: { type: 'LineString', coordinates: ring } });
+  for (const [a, t] of [[0, 'С'], [90, 'В'], [180, 'Ю'], [270, 'З']])
+    feats.push({ type: 'Feature', properties: { t: 'label', text: t, size: 15, color: '#e8eaed' }, geometry: { type: 'Point', coordinates: destPt(c[0], c[1], a, R + 35) } });
+  const days = [[new Date(y, 5, 21), 'лето', '#fbbf24', 2], [new Date(), 'сегодня', '#fb923c', 3.5], [new Date(y, 11, 21), 'зима', '#93c5fd', 2]];
+  for (const [d, name, color, w] of days) {
+    const st = sunTimes(d, c[1], c[0]);
+    for (const [az, kind, time] of [[st.riseAz, '☀↑', st.rise], [st.setAz, '☀↓', st.set]]) {
+      feats.push({ type: 'Feature', properties: { t: 'ray', color, w }, geometry: { type: 'LineString', coordinates: [c, destPt(c[0], c[1], az, R)] } });
+      feats.push({ type: 'Feature', properties: { t: 'label', text: `${kind} ${name} ${time}`, size: 11, color }, geometry: { type: 'Point', coordinates: destPt(c[0], c[1], az, R + (name === 'сегодня' ? 75 : 120)) } });
+    }
+  }
+  map.getSource('sun').setData(fc(feats));
+}
+
 /* ---------- камера ---------- */
 function orbitStep() { if (!S.orbiting) return; map.setBearing((map.getBearing() + 0.14) % 360); requestAnimationFrame(orbitStep); }
 function startOrbit() { S.orbiting = true; $('orbitBtn').classList.add('on'); if (map.getPitch() < 30) map.easeTo({ pitch: 60, duration: 600 }); requestAnimationFrame(orbitStep); }
@@ -789,6 +1021,7 @@ $('modeSeg').onclick = e => {
   applyFilters();
 };
 addEventListener('resize', () => map.setPadding(S.selected ? detailPad() : basePad()));
+map.on('moveend', () => { if ($('lSun').checked && !S.selected) pushSun(); });
 
 /* ---------- слои ---------- */
 const LAYER_GROUPS = {
@@ -816,6 +1049,9 @@ function syncLayerToggles() {
   map.setConfigProperty('basemap', 'show3dObjects', $('l3d').checked);
   map.setConfigProperty('basemap', 'showPointOfInterestLabels', $('lPoiLabels').checked);
   map.setConfigProperty('basemap', 'colorGreenspace', $('lGreen').checked ? GREEN_ON : THEMES[S.theme].colorGreenspace);
+  vis(['mk-dot'], $('lMarket').checked); if ($('lMarket').checked) pushMarket();
+  pushOsm();
+  vis(['sun-ring', 'sun-line', 'sun-label'], $('lSun').checked); if ($('lSun').checked) pushSun();
   const per = $('noiseNight').checked ? 'night' : 'day';
   for (const k of NOISE_KEYS) for (const p of ['day', 'night'])
     vis([`noise-${k}-${p}`], $('n_' + k).checked && p === per);
@@ -825,10 +1061,10 @@ function syncLayerToggles() {
     lg.src = `${NOISE_WMS}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&sld_version=1.1.0&layer=2022_STRASSE_${per === 'day' ? '24H' : 'NACHT'}_ZONEN_OE`;
     lg.hidden = false;
   } else lg.hidden = true;
-  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames'].map(k => [k, $(k).checked]))));
+  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lPost', 'lLocker', 'lSun'].map(k => [k, $(k).checked]))));
 }
 try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of Object.entries(saved)) if ($(k)) $(k).checked = v; } catch {}
-[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames'].forEach(id => $(id).onchange = syncLayerToggles);
+[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lPost', 'lLocker', 'lSun'].forEach(id => $(id).onchange = syncLayerToggles);
 $('noiseDay').onchange = syncLayerToggles;
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 
