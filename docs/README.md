@@ -15,6 +15,7 @@
 | [08-decisions-and-lessons.md](08-decisions-and-lessons.md) | Ключевые решения и ошибки с разбором — почему сделано именно так |
 | [09-roadmap.md](09-roadmap.md) | Что дальше: этапы, бэклог, идеи для продукта |
 | [10-changelog.md](10-changelog.md) | Хронология по сессиям и коммитам |
+| [11-radar.md](11-radar.md) | Радар новостроек: источники, реестр застройщиков, схема, метрики, план |
 
 Исходники бэкенда — в [`/supabase`](../supabase): `sql/01_migrations.sql` (все миграции), `sql/02_outside_migrations.sql`
 (объекты, созданные вне миграций, и расписание cron), `functions/*/index.ts` (все edge-функции).
