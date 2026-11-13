@@ -1,6 +1,6 @@
 // Радар новостроек: собирает проекты Вены с wiew.at (агрегатор новостроек: ~524 проекта, ~255 застройщиков)
 // и инвентарь квартир каждого проекта (Top, этаж, комнаты, м², цена, резерв) — для «скорости продаж».
-// ЧЕРНОВИК 13.11.2026: парсер написан без доступа к сырому HTML (Supabase был недоступен) — проверить и доточить на живой странице.
+// Данные проекта — из JSON-LD страницы (schema.org ApartmentComplex/Apartment/Offer), проверено на живой странице 13.11.2026.
 // Запуск: GET /functions/v1/radar?key=<COLLECTOR_KEY>&mode=list|detail[&from=0&n=40]
 //   mode=list   — обходит /de/neubauprojekte/wien?page=N, создаёт/обновляет dev_projects (slug 'wiew:<district>/<slug>')
 //   mode=detail — открывает n проектов (самые давно обновлённые), пишет факты и dev_units
@@ -42,47 +42,62 @@ async function listAll() {
   return [...seen.values()];
 }
 
-// ---------- карточка проекта ----------
+// ---------- карточка проекта: JSON-LD (schema.org ApartmentComplex + Apartment/Offer) + подписи из HTML ----------
+function ldBlocks(html: string) {
+  const out: any[] = [];
+  for (const m of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) { try { out.push(JSON.parse(m[1])); } catch { /* */ } }
+  return out;
+}
+function walk(o: any, f: (x: any) => void, d = 0) {
+  if (!o || typeof o !== 'object' || d > 12) return;
+  if (Array.isArray(o)) { for (const x of o) walk(x, f, d + 1); return; }
+  f(o); for (const k of Object.keys(o)) walk(o[k], f, d + 1);
+}
+const qv = (v: any) => v == null ? null : typeof v === 'object' ? (v.value ?? null) : v;
+const label = (html: string, name: string) => {
+  const m = html.match(new RegExp('>' + name + '</div><div[^>]*>([^<]{1,120})</div>', 'i'));
+  return m ? m[1].trim() : null;
+};
 function parseProject(html: string) {
-  const t = txt(html);
-  const title = (html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '').replace(/<[^>]+>/g, '').trim() || null;
-  const og = (p: string) => html.match(new RegExp(`<meta[^>]+property="og:${p}"[^>]+content="([^"]+)"`, 'i'))?.[1] || null;
-  const after = (label: RegExp) => { const m = t.match(new RegExp(label.source + '\\s*:?\\s*\\n?\\s*([^\\n]{1,120})', 'i')); return m ? m[1].trim() : null; };
-  const addr = t.match(/([A-ZÄÖÜ][\wäöüß.\- ]+?(?:straße|strasse|gasse|weg|platz|allee|promenade|ring|zeile|lände|steig)\s*[\d+\/\-a-z ]*),?\s*(1\d{2}0)\s*Wien/i);
-  const dev = after(/Bauträger/) || after(/Projektentwickler/);
-  const site = (html.match(/href="(https?:\/\/(?!wiew\.at)[^"]+)"[^>]*>\s*(?:Projektwebsite|Zur Projektwebsite|Website|Webseite)/i) || [])[1] || null;
-  const completion = t.match(/Fertigstellung[^\n\d]{0,30}(\d{4})/i)?.[1] || t.match(/Bezug[^\n\d]{0,30}(\d{4})/i)?.[1] || null;
-  const energy = t.match(/Energie(?:effizienz)?klasse\s*:?\s*\n?\s*(A\+\+|A\+|[A-G])\b/i)?.[1] || null;
-  const hwb = num(t.match(/HWB[^\n\d]{0,20}([\d.,]+)/i)?.[1]);
-  const units = num(t.match(/(\d{1,4})\s+(?:frei finanzierte |freifinanzierte |geförderte )?(?:Eigentums|Miet|Vorsorge)?wohnungen/i)?.[1]);
-  // квартиры: строки вида «Top 17.59 … 1 Zimmer … 30,6 m² … € 212.000 … reserviert»
-  const unitsOut: any[] = [];
-  const lines = t.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^\s*(Top\s*[\w.\/\-]+)/i); if (!m) continue;
-    const blk = lines.slice(i, i + 14).join(' | ');
-    const area = num(blk.match(/([\d.,]+)\s*m²/)?.[1]);
-    const price = num(blk.match(/€\s*([\d.,]+(?:\s*M)?)/)?.[1]);
-    unitsOut.push({ unit_ref: m[1].replace(/\s+/g, ' ').trim(),
-      floor: blk.match(/(\d+\.\s*OG|EG|DG|UG|\d+\.\s*Stock)/i)?.[1] || null,
-      orientation: blk.match(/\b(Nord|Süd|Ost|West)(?:[\-\/ ](?:Nord|Süd|Ost|West))?\b/)?.[0] || null,
-      rooms: num(blk.match(/([\d,]+)\s*Zi/)?.[1]), area_m2: area, price, ppm: price && area ? Math.round(price / area) : null,
-      status: /reserviert/i.test(blk) ? 'reserved' : /verkauft/i.test(blk) ? 'sold' : 'available' });
-  }
-  const ppms = unitsOut.map(u => u.ppm).filter(Boolean).sort((a: number, b: number) => a - b);
-  const prices = unitsOut.map(u => u.price).filter(Boolean);
-  const areas = unitsOut.map(u => u.area_m2).filter(Boolean);
-  const amen = ['Tiefgarage', 'Lift', 'Aufzug', 'Fitness', 'Pool', 'Sauna', 'Gemeinschaftsraum', 'Dachterrasse', 'Spielplatz', 'Fahrradraum', 'Concierge', 'Wärmepumpe', 'Photovoltaik', 'Paketbox', 'Klimaanlage', 'Bauteilaktivierung']
-    .filter(a => new RegExp(a, 'i').test(t));
+  let cx: any = null; const apts: any[] = [];
+  for (const b of ldBlocks(html)) walk(b, (o) => {
+    const t = o['@type'];
+    if (t === 'ApartmentComplex' && !cx) cx = o;
+    if (t === 'Apartment' && o.offers) apts.push(o);
+  });
+  const seen = new Set<string>();
+  const units = apts.map(a => {
+    const ref = String(a.name || '').split(' — ')[0].trim() || String(a.url || '').split('/').pop();
+    const area = qv(a.floorSize), price = a.offers?.price ?? null;
+    const av = String(a.offers?.availability || '');
+    return { unit_ref: ref, floor: a.floorLevel || null, rooms: qv(a.numberOfRooms), area_m2: area, price,
+      ppm: a.offers?.priceSpecification?.price ?? (price && area ? Math.round(price / area) : null),
+      status: /Reserved/i.test(av) ? 'reserved' : /SoldOut|Sold/i.test(av) ? 'sold' : 'available' };
+  }).filter(u => u.unit_ref && !seen.has(u.unit_ref) && seen.add(u.unit_ref));
+  const sale = units.filter(u => u.status !== 'sold');
+  const ppms = sale.map(u => u.ppm).filter(Boolean).sort((a: number, b: number) => a - b);
+  const prices = sale.map(u => u.price).filter(Boolean), areas = sale.map(u => u.area_m2).filter(Boolean), rooms = sale.map(u => u.rooms).filter(Boolean);
+  const devs: string[] = [];
+  for (const k of ['developer', 'seller', 'brand']) { const v = cx?.[k]; for (const x of (Array.isArray(v) ? v : v ? [v] : [])) if (x?.name) devs.push(String(x.name)); }
+  for (const pv of (cx?.additionalProperty || [])) if (/^(developer|legalEntity)$/i.test(pv?.name) && pv.value) devs.push(String(pv.value));
+  if (cx?.offers?.seller?.name) devs.push(String(cx.offers.seller.name).replace(/\s*[–-]\s*(Verkauf|Vertrieb).*$/i, ''));
+  const amen = (cx?.amenityFeature || []).map((a: any) => a?.name).filter(Boolean);
+  const site = (Array.isArray(cx?.sameAs) ? cx.sameAs : cx?.sameAs ? [cx.sameAs] : []).find((u: string) => !/wiew\.at/.test(u)) || null;
+  const fin = label(html, 'Fertigstellung'), energy = label(html, 'Energieklasse') || label(html, 'Energieeffizienzklasse'), hwb = label(html, 'HWB');
+  const stat = label(html, 'Status') || label(html, 'Projektstatus') || '';
   return {
-    name: title, official_url: site, image: og('image'), address: addr ? addr[1].trim() : null, zip: addr ? addr[2] : null,
-    developer_names: dev ? dev.split(/,|\s+und\s+|\s*&\s*(?=[A-Z])/).map(s => s.trim()).filter(s => s.length > 2) : [],
-    completion_year: completion ? +completion : null, energy_class: energy, hwb, units_total: units,
-    units: unitsOut, units_available: unitsOut.filter(u => u.status === 'available').length || null, units_reserved: unitsOut.filter(u => u.status === 'reserved').length || null,
-    price_min: prices.length ? Math.min(...prices) : null, price_max: prices.length ? Math.max(...prices) : null,
+    name: cx?.name || null, official_url: site, address: cx?.address?.streetAddress || null, zip: cx?.address?.postalCode || null,
+    lat: cx?.geo?.latitude ?? null, lng: cx?.geo?.longitude ?? null,
+    developer_names: [...new Set(devs)], units_total: cx?.numberOfAccommodationUnits ?? null,
+    completion_year: fin && /\d{4}/.test(fin) ? +fin.match(/\d{4}/)![0] : (cx?.yearBuilt ? +cx.yearBuilt : null),
+    energy_class: energy, hwb: hwb ? parseFloat(hwb.replace(',', '.')) || null : null, amenities: amen,
+    units, units_available: units.filter(u => u.status === 'available').length, units_reserved: units.filter(u => u.status === 'reserved').length,
+    price_min: prices.length ? Math.min(...prices) : (cx?.offers?.lowPrice ?? null), price_max: prices.length ? Math.max(...prices) : (cx?.offers?.highPrice ?? null),
     area_min: areas.length ? Math.min(...areas) : null, area_max: areas.length ? Math.max(...areas) : null,
-    ppm_min: ppms[0] || null, ppm_max: ppms[ppms.length - 1] || null, ppm_median: ppms.length ? ppms[Math.floor(ppms.length / 2)] : null,
-    amenities: amen, status: /in Bau|im Bau|Baustart erfolgt/i.test(t) ? 'under_construction' : /fertiggestellt|bezugsfertig|sofort bezugsfertig/i.test(t) ? 'completed' : /in Planung|geplant/i.test(t) ? 'planning' : null,
+    rooms_min: rooms.length ? Math.min(...rooms) : null, rooms_max: rooms.length ? Math.max(...rooms) : null,
+    ppm_min: ppms[0] ?? null, ppm_max: ppms[ppms.length - 1] ?? null, ppm_median: ppms.length ? ppms[Math.floor(ppms.length / 2)] : null,
+    status: /bau/i.test(stat) ? 'under_construction' : /fertig|bezug/i.test(stat) ? 'completed' : /plan/i.test(stat) ? 'planning' : null,
+    _status_label: stat || null, _fin_label: fin,
   };
 }
 
@@ -93,14 +108,19 @@ Deno.serve(async (req) => {
   try {
     if (mode === 'list') {
       const rows = (await listAll()).map(r => ({ ...r, last_seen: started, removed_at: null }));
-      for (let i = 0; i < rows.length; i += 200)
-        await rest('dev_projects?on_conflict=slug', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-          body: JSON.stringify(rows.slice(i, i + 200).map(({ name, ...r }) => r)) });   // имя не перетираем — его пишет detail
+      // уже известные проекты: только отметка «видели сегодня» (название не перетираем — его пишет detail)
+      const known = new Set<string>(((await (await rest('dev_projects?select=slug&source=eq.wiew&limit=5000')).json()) as any[]).map(x => x.slug));
+      const fresh = rows.filter(r => !known.has(r.slug)), old = rows.filter(r => known.has(r.slug)).map(r => r.slug);
+      for (let i = 0; i < fresh.length; i += 200)
+        await rest('dev_projects?on_conflict=slug', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(fresh.slice(i, i + 200)) });
+      for (let i = 0; i < old.length; i += 80)
+        await rest(`dev_projects?slug=in.(${old.slice(i, i + 80).map(x => '"' + x + '"').join(',')})`, { method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({ last_seen: started, removed_at: null }) });
       // проекты, пропавшие из каталога → removed_at (только если каталог прочитан целиком)
       if (rows.length > 100) await rest(`dev_projects?source=eq.wiew&removed_at=is.null&last_seen=lt.${encodeURIComponent(started)}`,
         { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ removed_at: started }) });
       await rest('radar_runs', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ source: 'wiew:list', started_at: started, finished_at: new Date().toISOString(), projects: rows.length }) });
-      return json({ mode, projects: rows.length });
+      return json({ mode, projects: rows.length, new: fresh.length });
     }
     // detail: n проектов, давно не обновлявшихся
     const n = Math.min(+(q.get('n') || 30), 60);
@@ -109,10 +129,10 @@ Deno.serve(async (req) => {
     for (const p of ps) {
       try {
         const d = parseProject(await get(p.url));
-        const { units: us, image, address, ...facts } = d;
+        const { units: us, _status_label, _fin_label, ...facts } = d;
         await rest(`dev_projects?id=eq.${p.id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' },
           body: JSON.stringify({ ...Object.fromEntries(Object.entries(facts).filter(([, v]) => v != null && !(Array.isArray(v) && !v.length))),
-            address, updated_at: new Date().toISOString(), raw: { image, parsed_at: started } }) });
+            updated_at: new Date().toISOString(), raw: { status_label: _status_label, completion_label: _fin_label, parsed_at: started } }) });
         if (us.length) {
           await rest('dev_units?on_conflict=project_id,unit_ref', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
             body: JSON.stringify(us.map((u: any) => ({ ...u, project_id: p.id, last_seen: started, gone_at: null }))) });

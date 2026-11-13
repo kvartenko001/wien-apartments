@@ -18,3 +18,4 @@
 - **10:45–11:10 · Этап 8.** Продажа в сборщике (`deal=buy`), медианы `district_stats`, cron продажи 01:00 UTC, режим покупки в интерфейсе (7171d46).
 - **11:10 · Документация.** Каталог `docs/`, выгрузка SQL и функций в `supabase/`.
 - **15:05 · Этап 8b (радар).** Источники: wiew.at (524 проекта, 255 застройщиков, поквартирный инвентарь), Willhaben PROJECT_ID, wohnfonds, ganz-wien; ImmoScout новостройки — капча с сервера. Написаны 03_radar.sql, 04_developers_seed.sql (58 застройщиков), функция radar; Supabase был недоступен — применение отложено.
+- **17:20 · Supabase вернулся.** Применены разборы Momento Vienna (DS90) и «Prandaugasse 8» = VIENNA TWENTYTWO Tower Homes (155 м, ARE). Улучшено сопоставление улиц (21). Радар: схема (22), 59 застройщиков, wiew.at 521 проект, функция radar на JSON-LD, cron.

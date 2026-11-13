@@ -110,3 +110,19 @@ select cron.schedule('nightpharm-pm', '43 15 * * *',
   $$select extensions.http_set_curlopt('CURLOPT_TIMEOUT','100'); select extensions.http_get('https://nyxvpcrftzsoprhnethq.supabase.co/functions/v1/nightpharm?key=<COLLECTOR_KEY>')$$);
 select cron.schedule('photos-daily', '17 6 * * *',
   $$select extensions.http_set_curlopt('CURLOPT_TIMEOUT','150'); select extensions.http_get('https://nyxvpcrftzsoprhnethq.supabase.co/functions/v1/photos?key=<COLLECTOR_KEY>')$$);
+
+-- ---------- 13.11.2026 вечер: радар новостроек (миграции 21_market_match_street_norm, 22_radar_schema применены) ----------
+-- private.norm_street(text): «Dresdnerstraße» = «Dresdner Straße», «Doktor-…» = «Dr.-…» (используется в market_match)
+create or replace function private.radar_call(p_mode text, p_n int default 40) returns text language plpgsql security definer set search_path to 'public','extensions' as $f$
+declare r text;
+begin
+  perform extensions.http_set_curlopt('CURLOPT_TIMEOUT', '280');
+  select content into r from extensions.http_get('https://nyxvpcrftzsoprhnethq.supabase.co/functions/v1/radar?key=<COLLECTOR_KEY>&mode=' || p_mode || '&n=' || p_n);
+  return r;
+exception when others then
+  insert into public.radar_runs(source, finished_at, error) values ('wiew:' || p_mode, now(), sqlerrm);
+  return sqlerrm;
+end $f$;
+select cron.schedule('radar-list', '40 0 * * *', $$select private.radar_call('list')$$);          -- каталог wiew.at раз в день
+select cron.schedule('radar-detail', '*/10 0-4 * * *', $$select private.radar_call('detail', 30)$$);  -- карточки и квартиры, ~750 за ночь
+-- radar-fill: разовая догрузка каждые 4 мин, снимает себя (private.radar_fill)
