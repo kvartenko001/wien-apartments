@@ -202,3 +202,4 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .noisebox b{font-size:13px;margin-right:6px}
 .nrow{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:6px;padding-top:6px;color:var(--dim)}
 .n-lo{color:#86efac}.n-mid{color:#fbbf24}.n-hi{color:#f87171}
+.rcar{font-size:12px;color:var(--dim);margin-top:5px}.rcar b{color:var(--ink)}

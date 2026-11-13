@@ -536,14 +536,24 @@ async function loadRoutes(b) {
     const alt = e.target.closest('.ralt'); const row = e.target.closest('.rrow'); if (!row) return;
     const d = dests.find(x => String(x.id) === row.dataset.dest) || (S.customDests || []).find(x => String(x.id) === row.dataset.dest);
     const r = S.routes[`${b.id}|${d.id}`]; if (!r) return;
+    if (alt && alt.dataset.car) { drawCar(S.car[`${b.id}|${d.id}`], b, d); row.querySelectorAll('.ralt').forEach(a => a.classList.toggle('on', a === alt)); return; }
     if (alt) { drawTrip(r.trips[+alt.dataset.i], b, d); row.querySelectorAll('.ralt').forEach(a => a.classList.toggle('on', a === alt)); return; }
     const open = S.routeOpen === row.dataset.dest ? null : row.dataset.dest;
     S.routeOpen = open;
     box.querySelectorAll('.rrow').forEach(x => { x.classList.toggle('open', x.dataset.dest === open); x.querySelector('.ralts').hidden = x.dataset.dest !== open; });
-    if (open) { renderAlts(row, r); const t = best(r); drawTrip(t, b, d); } else clearRoute();
+    if (open) { renderAlts(row, r, S.car[`${b.id}|${d.id}`]); const t = best(r); drawTrip(t, b, d); } else clearRoute();
   };
   const form = $('routeCustom');
   form.onsubmit = async e => { e.preventDefault(); const q = $('routeQ').value.trim(); if (q) addCustomDest(b, q); };
+  dests.forEach(async d => {
+    const row = box.querySelector(`.rrow[data-dest="${CSS.escape(String(d.id))}"]`);
+    try {
+      const c = await fetchCar(b, d);
+      if (S.selected !== b.id || !c) return;
+      let el = row.querySelector('.rcar'); if (!el) { el = document.createElement('div'); el.className = 'rcar'; row.querySelector('.rchips').after(el); }
+      el.innerHTML = `🚗 на машине <b>${c.min}</b> мин · ${c.km} км <span class="rmeta">(с пробками в будни 8:00)</span>`;
+    } catch {}
+  });
   await Promise.all(dests.map(async d => {
     const row = box.querySelector(`.rrow[data-dest="${CSS.escape(String(d.id))}"]`);
     try {
@@ -560,10 +570,11 @@ async function loadRoutes(b) {
   }));
 }
 
-function renderAlts(row, r) {
+function renderAlts(row, r, car) {
   const trips = [...r.trips].sort((a, b) => a.duration - b.duration);
   r.trips = trips;
-  row.querySelector('.ralts').innerHTML = trips.map((t, i) => `
+  const carHtml = car ? `<div class="ralt" data-car="1"><div class="atop"><b>🚗 На машине</b><span>${car.min} мин · ${car.km} км · без пробок ${car.free} мин</span></div></div>` : '';
+  row.querySelector('.ralts').innerHTML = carHtml + trips.map((t, i) => `
     <div class="ralt${i === 0 ? ' on' : ''}" data-i="${i}">
       <div class="atop"><b>${t.dep}–${t.arr}</b><span>${t.duration} мин · ${t.interchanges} пересад. · 🚶${t.walk}</span></div>
       <ol class="legs">${t.legs.map(l => l.kind === 'walk'
@@ -584,6 +595,31 @@ function drawTrip(t, b, d) {
   stopOrbit();
   const bb = new mapboxgl.LngLatBounds([b.lng, b.lat], [b.lng, b.lat]); bb.extend([d.lng, d.lat]);
   for (const f of feats) (f.geometry.type === 'Point' ? [f.geometry.coordinates] : f.geometry.coordinates).forEach(c => bb.extend(c));
+  map.fitBounds(bb, { padding: Object.fromEntries(Object.entries(detailPad()).map(([k, v]) => [k, v + 40])), pitch: 35, bearing: 0, duration: 1400, maxZoom: 15 });
+}
+/* машина: Mapbox Directions с типичными пробками на будний день 8:00 */
+S.car = {};
+async function fetchCar(b, d) {
+  const key = `${b.id}|${d.id}`;
+  if (S.car[key]) return S.car[key];
+  const w = routeWhen(), dt = `${w.date.slice(0, 4)}-${w.date.slice(4, 6)}-${w.date.slice(6, 8)}T08:00`;
+  const base = `https://api.mapbox.com/directions/v5/mapbox`, xy = `${b.lng},${b.lat};${d.lng},${d.lat}`;
+  const q = `geometries=geojson&overview=simplified&access_token=${CFG.MAPBOX_TOKEN}`;
+  const [t, f] = await Promise.all([
+    fetch(`${base}/driving-traffic/${xy}?${q}&depart_at=${dt}`).then(r => r.json()),
+    fetch(`${base}/driving/${xy}?${q}`).then(r => r.json())
+  ]);
+  const rt = t.routes && t.routes[0], rf = f.routes && f.routes[0];
+  if (!rt && !rf) return null;
+  const main = rt || rf;
+  return (S.car[key] = { min: Math.round(main.duration / 60), free: Math.round((rf || main).duration / 60), km: (main.distance / 1000).toFixed(1), coords: main.geometry.coordinates });
+}
+function drawCar(c, b, d) {
+  if (!c || !map.getSource('route')) return;
+  const feats = [{ type: 'Feature', properties: { kind: 'car', color: '#e8eaed' }, geometry: { type: 'LineString', coordinates: c.coords } }];
+  map.getSource('route').setData(fc(feats));
+  stopOrbit();
+  const bb = new mapboxgl.LngLatBounds([b.lng, b.lat], [b.lng, b.lat]); c.coords.forEach(x => bb.extend(x)); bb.extend([d.lng, d.lat]);
   map.fitBounds(bb, { padding: Object.fromEntries(Object.entries(detailPad()).map(([k, v]) => [k, v + 40])), pitch: 35, bearing: 0, duration: 1400, maxZoom: 15 });
 }
 function clearRoute() { S.routeOpen = null; map.getSource('route')?.setData(fc([])); }
