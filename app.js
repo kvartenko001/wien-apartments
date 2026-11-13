@@ -201,6 +201,13 @@ map.on('style.load', async () => {
       paint: { 'text-color': c.color, 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
   }
 
+  // кандидат на добавление
+  map.addSource('cand', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'cand-fill', type: 'fill', source: 'cand', slot: 'top', paint: { 'fill-color': '#ffb300', 'fill-opacity': 0.35 } });
+  map.addLayer({ id: 'cand-line', type: 'line', source: 'cand', slot: 'top', paint: { 'line-color': '#ffb300', 'line-width': 3, 'line-dasharray': [2, 1] } });
+  map.addLayer({ id: 'cand-pt', type: 'circle', source: 'cand', slot: 'top', filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': 9, 'circle-color': '#ffb300', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+
   // маршрут из калькулятора дороги
   map.addSource('route', { type: 'geojson', data: fc([]) });
   map.addLayer({ id: 'route-casing', type: 'line', source: 'route', slot: 'top', filter: ['!=', ['get', 'kind'], 'walk'],
@@ -402,10 +409,11 @@ function renderList() {
       <div class="bhead">
         <div>
           <div class="bname">${esc(b.name || b.street + ' ' + (b.house_no || ''))}<span class="status">${STATUS[b.our_status] || ''}</span></div>
-          <div class="bmeta">${b.district}-й район${b.year_built ? ' · ' + b.year_built : ''}${b.height_m ? ' · ' + Math.round(b.height_m) + ' м' : ''}${b.ls.length ? ' · ' + b.ls.length + ' объявл.' : ''}</div>
+          <div class="bmeta">${b.district ? b.district + '-й район' : 'район ?'}${b.year_built ? ' · ' + b.year_built : ''}${b.height_m ? ' · ' + Math.round(b.height_m) + ' м' : ''}${b.ls.length ? ' · ' + b.ls.length + ' объявл.' : ''}</div>
         </div>
         <div class="bprice">${isFinite(p) ? 'от ' + eur(p) : '—'}<small>${S.f.basis === 'gross' ? 'грязная' : 'полная/мес'}</small></div>
       </div>
+      ${b.research_status === 'queued' ? '<div class="queued">⏳ на разборе: Claude соберёт данные и объявления</div>' : ''}
       ${b.pass ? '' : `<div class="why">${b.why.join(' · ')}</div>`}
     </div>`;
   }).join('') || '<p class="hint">Пусто. Ослабь фильтры.</p>';
@@ -667,6 +675,89 @@ async function loadNoise(b) {
     box.innerHTML = `<b>Шум у дома</b><span class="rmeta">не получилось: ${esc(e.message)}</span>`;
   }
 }
+
+/* ---------- добавить дом: поиск по названию ЖК или адресу ---------- */
+const ADD = { cand: null };
+$('addBtn').onclick = () => { const bx = $('addBox'); bx.hidden = !bx.hidden; if (!bx.hidden) $('addQ').focus(); };
+$('addForm').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('addQ').value.trim(); if (!q) return;
+  $('addRes').innerHTML = '<p class="hint">Ищу…</p>';
+  try {
+    const u = `https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(q)}&proximity=16.3738,48.2082&bbox=16.18,48.11,16.58,48.33&language=de&limit=6&types=poi,address&access_token=${CFG.MAPBOX_TOKEN}`;
+    const r = await (await fetch(u)).json();
+    const list = (r.features || []).map(f => {
+      const p = f.properties || {}, c = p.context || {};
+      return { name: p.feature_type === 'poi' ? p.name : '', label: p.name, addr: p.full_address || p.place_formatted || '',
+        street: c.address?.street_name || c.street?.name || '', house: c.address?.address_number || '', zip: c.postcode?.name || '',
+        lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], kind: p.feature_type };
+    });
+    ADD.list = list;
+    $('addRes').innerHTML = list.length ? list.map((x, i) => `<div class="addhit" data-i="${i}"><b>${esc(x.label)}</b><span>${esc(x.addr)}</span></div>`).join('')
+      : '<p class="hint">Ничего не нашлось в Вене. Попробуй адрес: «Arsenalstraße 8».</p>';
+  } catch { $('addRes').innerHTML = '<p class="hint">Поиск не ответил, попробуй ещё раз.</p>'; }
+};
+$('addPick').onclick = () => {
+  toast('Ткни на нужный дом на карте', 3000);
+  if (!DESKTOP()) $('sheet').classList.add('min');
+  map.getCanvas().style.cursor = 'crosshair';
+  map.once('click', async e => {
+    map.getCanvas().style.cursor = '';
+    const { lng, lat } = e.lngLat;
+    let c = { name: '', label: '', addr: '', street: '', house: '', zip: '', lng, lat };
+    try {
+      const r = await (await fetch(`https://api.mapbox.com/search/geocode/v6/reverse?longitude=${lng}&latitude=${lat}&types=address&language=de&access_token=${CFG.MAPBOX_TOKEN}`)).json();
+      const f = r.features && r.features[0];
+      if (f) { const p = f.properties, cx = p.context || {}; c = { ...c, addr: p.full_address || p.name, street: cx.address?.street_name || cx.street?.name || '', house: cx.address?.address_number || '', zip: cx.postcode?.name || '' }; }
+    } catch {}
+    pickCandidate(c);
+  });
+};
+$('addRes').onclick = e => { const h = e.target.closest('.addhit'); if (h) pickCandidate(ADD.list[+h.dataset.i]); };
+
+function ringAreaM2(r) { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] * MX) * (r[i][1] * MY) - (r[i][0] * MX) * (r[j][1] * MY); return Math.abs(a / 2); }
+function pickCandidate(c) {
+  closeDetail();
+  if (!DESKTOP()) $('sheet').classList.add('min');
+  map.flyTo({ center: [c.lng, c.lat], zoom: 17, pitch: 45, bearing: -20, padding: basePad(), duration: 1800 });
+  map.once('idle', () => {
+    let fp = null, h = null;
+    try {
+      const pt = map.project([c.lng, c.lat]);
+      const box = [[pt.x - 6, pt.y - 6], [pt.x + 6, pt.y + 6]];
+      const hits = map.queryRenderedFeatures(box, { target: BUILDINGS_TARGET });
+      const f = hits.find(x => x.geometry && /Polygon/.test(x.geometry.type));
+      if (f) { fp = f.geometry; h = +(f.properties.height || f.properties.render_height || 0) || null; }
+    } catch {}
+    const area = fp ? geomParts(fp).reduce((s, p) => s + ringAreaM2(p[0]), 0) : 0;
+    ADD.cand = { ...c, fp: area > 0 && area < 20000 ? fp : null, h, area };
+    map.getSource('cand').setData(fc([ADD.cand.fp ? { type: 'Feature', properties: {}, geometry: ADD.cand.fp } : { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } }]));
+    $('acAddr').textContent = [c.street && (c.street + ' ' + c.house), c.zip].filter(Boolean).join(', ') || c.addr;
+    $('acName').value = c.name || '';
+    $('acNote').textContent = ADD.cand.fp ? `Контур найден: ~${Math.round(area)} м²${h ? ', высота ~' + Math.round(h) + ' м' : ''}. Если подсветился весь квартал — жми «Только точкой».`
+      : (area >= 20000 ? 'Mapbox отдаёт целый квартал одним куском — добавлю точкой, контур поправлю при разборе.' : 'Контур здания не нашёлся — добавлю точкой, контур поправлю при разборе.');
+    $('acPoint').hidden = !ADD.cand.fp;
+    $('addConfirm').hidden = false;
+  });
+}
+async function confirmAdd(usePoint) {
+  const c = ADD.cand; if (!c) return;
+  $('acOk').disabled = true;
+  const { data, error } = await sb.rpc('add_building', {
+    p_name: $('acName').value.trim(), p_street: c.street || null, p_house_no: c.house || null, p_zip: c.zip || null,
+    p_lng: c.lng, p_lat: c.lat, p_footprint: usePoint ? null : c.fp, p_height: c.h, p_query: $('addQ').value.trim()
+  });
+  $('acOk').disabled = false;
+  if (error) { toast('Не добавилось: ' + error.message, 5000); return; }
+  cancelAdd(); $('addBox').hidden = true; $('addQ').value = ''; $('addRes').innerHTML = '';
+  toast('Дом добавлен. Он в очереди на разбор — напиши Claude «разбери новые дома».', 5000);
+  await load();
+  if (data) select(data);
+}
+function cancelAdd() { ADD.cand = null; $('addConfirm').hidden = true; map.getSource('cand')?.setData(fc([])); }
+$('acOk').onclick = () => confirmAdd(false);
+$('acPoint').onclick = () => confirmAdd(true);
+$('acCancel').onclick = cancelAdd;
 
 /* ---------- камера ---------- */
 function orbitStep() { if (!S.orbiting) return; map.setBearing((map.getBearing() + 0.14) % 360); requestAnimationFrame(orbitStep); }

@@ -203,3 +203,20 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .nrow{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:6px;padding-top:6px;color:var(--dim)}
 .n-lo{color:#86efac}.n-mid{color:#fbbf24}.n-hi{color:#f87171}
 .rcar{font-size:12px;color:var(--dim);margin-top:5px}.rcar b{color:var(--ink)}
+
+/* добавить дом */
+.addbtn{width:100%;background:var(--amber-soft);border:1px dashed var(--amber);color:var(--amber);border-radius:12px;padding:10px;font:inherit;font-weight:600;cursor:pointer;margin-bottom:8px}
+.addbox{margin-bottom:10px}
+.addbox form{display:flex;gap:6px}
+.addbox input,.addconfirm input{flex:1;width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px;color:var(--ink);font:inherit}
+.addbox button,.ac-btns button{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+.ac-btns button.primary,.addbox form button{background:var(--amber);color:#1a1205;border:0;font-weight:700}
+.addhit{padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin-top:6px;cursor:pointer;background:var(--panel-2)}
+.addhit b{display:block;font-size:13px}.addhit span{font-size:11px;color:var(--faint)}
+.addhit:hover{border-color:var(--amber)}
+.addconfirm{position:fixed;z-index:9;left:50%;transform:translateX(-50%);top:70px;width:min(380px,calc(100vw - 16px));background:var(--panel-solid);border:1px solid var(--amber);border-radius:16px;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.ac-title{font-weight:700;margin-bottom:4px}.ac-addr{color:var(--dim);font-size:13px;margin-bottom:8px}
+.ac-note{font-size:12px;color:var(--faint);margin:8px 0}
+.ac-btns{display:flex;gap:6px;flex-wrap:wrap}
+.queued{font-size:11px;color:var(--amber);margin-top:5px}
+.addpick{background:none;border:0;color:var(--dim);text-decoration:underline;font:inherit;font-size:12px;margin-top:8px;cursor:pointer;padding:0}
