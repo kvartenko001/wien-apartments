@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.css" rel="stylesheet">
-<link href="style.css?v=1794606214" rel="stylesheet">
+<link href="style.css?v=1794668188" rel="stylesheet">
 </head>
 <body class="theme-a">
 
@@ -102,6 +102,8 @@
     <label class="check"><input type="checkbox" id="lTram"> <span class="sw sw-t"></span> Трамваи — линии и остановки</label>
     <label class="check"><input type="checkbox" id="lBus"> <span class="sw sw-b"></span> Автобусы — линии и остановки</label>
     <label class="check"><input type="checkbox" id="lPlanned" checked> <span class="sw sw-pl"></span> Строящиеся: U5 и новая U2 <small>(со сроками)</small></label>
+    <label class="check"><input type="checkbox" id="lNewTram"> <span class="sw sw-nt"></span> Новые трамваи: 12, 27, продление 18 <small>+ планы пунктиром</small></label>
+    <label class="check"><input type="checkbox" id="lBike"> <span class="sw sw-bike"></span> Велодорожки <small>(зелёные — отдельные, светлые — полосы, жёлтые — общие)</small></label>
     <label class="check sub"><input type="checkbox" id="lStnIcons" checked> Значки U и S у станций <small>(выкл — точки)</small></label>
     <label class="check sub"><input type="checkbox" id="lStnNames" checked> Названия станций метро и S-Bahn</label>
     <div class="ftitle lrow" style="margin-top:16px">Шум
@@ -124,6 +126,29 @@
     <div class="chips brandchips" id="lockerBrands"></div>
     <label class="check"><input type="checkbox" id="lSun"> <span class="sw sw-sun"></span> Солнце: стороны света, восход и закат у дома</label>
     <div class="src">Магазины, аптеки, myflexbox/Amazon — © участники OpenStreetMap (ODbL). Почта, Poststationen и Hermes-шопы — официальный список Österreichische Post. Дежурные аптеки — Österreichische Apothekerkammer, обновляются дважды в день.</div>
+    <div class="ftitle sm2">Дети</div>
+    <label class="check"><input type="checkbox" id="lSchoolPub"> <span class="sw" style="background:#60a5fa"></span> Школы — государственные</label>
+    <label class="check"><input type="checkbox" id="lSchoolPriv"> <span class="sw" style="background:#a78bfa"></span> Школы — частные</label>
+    <label class="check"><input type="checkbox" id="lKigaPub"> <span class="sw" style="background:#34d399"></span> Детсады — городские</label>
+    <label class="check"><input type="checkbox" id="lKigaPriv"> <span class="sw" style="background:#fbbf24"></span> Детсады — частные и церковные</label>
+    <label class="check"><input type="checkbox" id="lPlay"> <span class="sw" style="background:#f472b6"></span> Детские площадки</label>
+    <div class="ftitle sm2">Спорт</div>
+    <label class="check"><input type="checkbox" id="lSportOut"> <span class="sw" style="background:#22d3ee"></span> Спортплощадки на улице</label>
+    <label class="check"><input type="checkbox" id="lSportIn"> <span class="sw" style="background:#38bdf8"></span> Спортзалы и залы</label>
+    <label class="check"><input type="checkbox" id="lPool"> <span class="sw" style="background:#3b82f6"></span> Бассейны города (крытые и летние)</label>
+    <label class="check"><input type="checkbox" id="lFit"> <span class="sw" style="background:#fb923c"></span> Фитнес-центры</label>
+    <div class="ftitle sm2">Здоровье</div>
+    <label class="check"><input type="checkbox" id="lHosp"> <span class="sw" style="background:#ef4444"></span> Больницы</label>
+    <label class="check"><input type="checkbox" id="lDocGp"> <span class="sw" style="background:#fca5a5"></span> Врачи общей практики (Hausarzt)</label>
+    <label class="check"><input type="checkbox" id="lDocKid"> <span class="sw" style="background:#f9a8d4"></span> Детские врачи</label>
+    <label class="check"><input type="checkbox" id="lDocDent"> <span class="sw" style="background:#e9d5ff"></span> Стоматологи</label>
+    <label class="check"><input type="checkbox" id="lDocGyn"> <span class="sw" style="background:#fbcfe8"></span> Гинекологи</label>
+    <label class="check"><input type="checkbox" id="lDocSpec"> <span class="sw" style="background:#d4d4d8"></span> Другие специалисты</label>
+    <div class="ftitle sm2">Город</div>
+    <label class="check"><input type="checkbox" id="lDog"> <span class="sw" style="background:#a3e635"></span> Зоны для собак</label>
+    <label class="check"><input type="checkbox" id="lFuel"> <span class="sw" style="background:#facc15"></span> Заправки</label>
+    <label class="check"><input type="checkbox" id="lCool"> <span class="sw" style="background:#67e8f9"></span> «Прохладные зоны» в жару</label>
+    <div class="src">Школы, детсады, площадки, спорт, бассейны, больницы, врачи, зоны для собак, велодорожки — открытые данные Stadt Wien (data.wien.gv.at, CC BY 4.0). Заправки и фитнес — OpenStreetMap. Частные — точки с белой обводкой.</div>
     <div class="ftitle" style="margin-top:16px">Город</div>
     <label class="check"><input type="checkbox" id="lGreen"> <span class="sw sw-g"></span> Зелёные зоны</label>
     <label class="check"><input type="checkbox" id="lDistricts" checked> Границы районов</label>
@@ -132,8 +157,8 @@
     <label class="check"><input type="checkbox" id="lPoiLabels"> Подписи заведений</label>
     <div class="soon">
       <div class="ftitle">Скоро</div>
-      <div>Новые трамвайные линии · Заправки · Зоны для собак</div>
-      <div style="margin-top:8px">Маршруты: © участники OpenStreetMap (ODbL). Строящиеся линии — схема по станциям, сроки по Wiener Linien: U5 и новая U2 — 2030, вторые очереди — без твёрдой даты.</div>
+      <div>Карта жары (где прохладнее/душнее летом) · Деревья и тень · Lagecheck-оценка дома</div>
+      <div style="margin-top:8px">Маршруты: © участники OpenStreetMap (ODbL). Строящиеся линии — схема по станциям, сроки по Wiener Linien: U5 и новая U2 — 2030, вторые очереди — без твёрдой даты. Новые трамваи 12 и 27 — осень 2025, продление 18 до Stadion — с 5.09.2026; планы (Wienerbergtangente, Donaufeld, 12-й 2-й участок) — примерные трассы.</div>
     </div>
   </div>
 
@@ -248,6 +273,6 @@
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="config.js?v=1794563009"></script>
-<script src="app.js?v=1794606214"></script>
+<script src="app.js?v=1794668188"></script>
 </body>
 </html>

@@ -1,0 +1,5 @@
+-- 14.11.2026 · Слои «Что рядом» (Lagecheck): map_points / map_lines.
+-- Применено: map_points, map_lines, private.ogd_load() (школы 819, детсады 1680, зоны для собак 440).
+-- Ожидает подтверждения (запрос в Supabase не был подтверждён): private.fuel_load() (заправки, OSM/Overpass),
+--   private.ogd_fetch + private.ogd_load2() (площадки, спорт, бассейны, больницы, врачи, прохладные зоны), cron 'ogd-monthly'.
+-- Полный текст функций — см. историю миграций проекта (map_points_ogd, fuel_layer, ogd_lagecheck_layers).

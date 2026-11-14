@@ -226,6 +226,39 @@ map.on('style.load', async () => {
   map.on('click', 'mk-dot', e => mkPopup(+e.features[0].properties.id, e.lngLat));
   for (const id of ['mk-dot', 'osm-dot']) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
 
+  // новые и будущие трамваи
+  map.addSource('nt', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'nt-glow', type: 'line', source: 'nt', slot: 'middle', filter: ['==', ['get', 'st'], 'open'], layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#ff4d6d', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 7, 16, 16], 'line-opacity': 0.25, 'line-blur': 3 } });
+  map.addLayer({ id: 'nt-line', type: 'line', source: 'nt', slot: 'middle', filter: ['==', ['get', 'st'], 'open'], layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#ff4d6d', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 16, 6] } });
+  map.addLayer({ id: 'tp-line', type: 'line', source: 'nt', slot: 'middle', filter: ['==', ['get', 'st'], 'plan'], layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#ff8fa3', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.2, 16, 5], 'line-opacity': 0.75, 'line-dasharray': ['literal', [1.2, 1.2]] } });
+  map.addLayer({ id: 'nt-label', type: 'symbol', source: 'nt', slot: 'top', minzoom: 11.5, layout: { visibility: 'none', 'symbol-placement': 'line', 'symbol-spacing': 280,
+      'text-field': ['concat', ['get', 'line'], ' · ', ['get', 'open']], 'text-size': 11, 'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'] },
+    paint: { 'text-color': '#ffb3c1', 'text-halo-color': '#000', 'text-halo-width': 1.6 } });
+  map.on('click', 'nt-line', e => toast(e.features[0].properties.note, 5000)); map.on('click', 'tp-line', e => toast(e.features[0].properties.note, 6000));
+
+  // велодорожки (Stadt Wien, грузятся по требованию прямо с data.wien.gv.at)
+  map.addSource('bike', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'bike-line', type: 'line', source: 'bike', slot: 'middle', minzoom: 11, layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': ['match', ['get', 'k'], 'sep', '#22c55e', 'lane', '#86efac', 'mixed', '#fde68a', '#a3a3a3'],
+             'line-width': ['interpolate', ['linear'], ['zoom'], 11, ['match', ['get', 'k'], 'sep', 1.8, 1.1], 16, ['match', ['get', 'k'], 'sep', 4.5, 3]],
+             'line-opacity': 0.9, 'line-dasharray': ['case', ['==', ['get', 'k'], 'mixed'], ['literal', [2, 1.5]], ['literal', [1, 0]]] } });
+
+  // Lagecheck: школы, сады, спорт, медицина, собаки, заправки… (открытые данные Stadt Wien + OSM)
+  map.addSource('mp', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'mp-dot', type: 'circle', source: 'mp', slot: 'top', minzoom: 10.5, layout: { visibility: 'none' },
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.6, 16, 6.5], 'circle-color': ['get', 'c'],
+             'circle-stroke-color': ['case', ['get', 'priv'], '#fff', '#0b0d10'], 'circle-stroke-width': ['case', ['get', 'priv'], 1.6, 1.1] } });
+  map.addLayer({ id: 'mp-label', type: 'symbol', source: 'mp', slot: 'top', minzoom: 15, layout: { visibility: 'none',
+      'text-field': ['concat', ['get', 'e'], ' ', ['get', 'n']], 'text-size': 10.5, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true, 'text-max-width': 12,
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'] },
+    paint: { 'text-color': ['get', 'c'], 'text-halo-color': '#000', 'text-halo-width': 1.2 } });
+  map.on('click', 'mp-dot', e => { const p = e.features[0].properties;
+    new mapboxgl.Popup({ closeButton: false, className: 'mkpop' }).setLngLat(e.lngLat).setHTML(mpPopup(p.id)).addTo(map); });
+  map.on('mouseenter', 'mp-dot', () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', 'mp-dot', () => map.getCanvas().style.cursor = '');
+
   // солнце
   map.addSource('sun', { type: 'geojson', data: fc([]) });
   map.addLayer({ id: 'sun-ring', type: 'line', source: 'sun', slot: 'top', filter: ['==', ['get', 't'], 'ring'], layout: { visibility: 'none' },
@@ -337,6 +370,7 @@ function pushTransit() {
     const src = map.getSource('tx-' + mode);
     if (src && S.transit[mode]) src.setData(S.transit[mode]);
   }
+  if ($('lNewTram')?.checked) pushNewTram();
 }
 
 /* ---------- данные ---------- */
@@ -512,6 +546,7 @@ function renderDetail(id) {
     ${b.pass ? '' : `<div class="why">Не проходит: ${b.why.join(' · ')}</div>`}
     <div class="lhead2"><b>Объявления</b><span class="rmeta">${ls.length ? ls.length + ' · листай →' : 'сейчас нет'}</span></div>
     <div class="lscroll">${cards || '<p class="hint">Сейчас в этом доме ничего не сдаётся. Сборщик проверяет каждое утро.</p>'}</div>
+    ${section('lage', 'Что рядом', '<div id="lageBox"><span class="rmeta">считаю…</span></div>', '<span id="lageSum"></span>')}
     ${section('noise', 'Шум у дома', '<div id="noiseBox"><span class="rmeta">считаю…</span></div>', '<span id="noiseSum"></span>')}
     ${section('route', 'Дорога', `<div class="rwhen">${esc(routeWhenLabel())}</div>
       <div id="routeList"></div>
@@ -525,6 +560,7 @@ function renderDetail(id) {
     const a = e.target.closest('.mcard[data-mid]'); const g = a && (S.mkGroups || []).find(q => String(q.mid) === a.dataset.mid); if (g) { e.preventDefault(); openListing(g); } };
   loadRoutes(b);
   loadNoise(b);
+  loadLage(b);
 }
 function section(k, title, body, sum) {
   const open = localGet('sec_' + k, k === 'route' ? '0' : '1') === '1';
@@ -682,7 +718,7 @@ function drawCar(c, b, d) {
 }
 function clearRoute() { S.routeOpen = null; map.getSource('route')?.setData(fc([])); focusRoute(false); }
 /* режим маршрута: гасим все линии транспорта, станции, точки «рядом с домом» и объявления — виден только наш путь */
-const FOCUS_RX = /^(tx-|stn-|pl-|osm-|mk-|sun-|dev-)/;
+const FOCUS_RX = /^(tx-|stn-|pl-|osm-|mk-|sun-|dev-|mp-|bike-|nt-|tp-)/;
 function focusRoute(on) {
   if (!map.getStyle()) return;
   if (on) {
@@ -1209,6 +1245,121 @@ function pushOsm() {
   vis(['osm-dot', 'osm-label'], any);
 }
 
+/* ---------- Lagecheck: что рядом с домом (открытые данные Stadt Wien + OSM) ---------- */
+const MP = [ // id чекбокса, слой в map_points, подвиды, подпись, цвет, значок
+  { id: 'lSchoolPub', layer: 'school', sub: ['public'], t: 'Школы — государственные', c: '#60a5fa', e: '🏫', g: 'Дети' },
+  { id: 'lSchoolPriv', layer: 'school', sub: ['private'], t: 'Школы — частные', c: '#a78bfa', e: '🏫', g: 'Дети', priv: 1 },
+  { id: 'lKigaPub', layer: 'kiga', sub: ['public'], t: 'Детсады — городские', c: '#34d399', e: '🧸', g: 'Дети' },
+  { id: 'lKigaPriv', layer: 'kiga', sub: ['private'], t: 'Детсады — частные, церковные', c: '#fbbf24', e: '🧸', g: 'Дети', priv: 1 },
+  { id: 'lPlay', layer: 'play', t: 'Детские площадки', c: '#f472b6', e: '🛝', g: 'Дети' },
+  { id: 'lSportOut', layer: 'sport', sub: ['outdoor'], t: 'Спортплощадки на улице', c: '#22d3ee', e: '⚽', g: 'Спорт' },
+  { id: 'lSportIn', layer: 'sport', sub: ['indoor', 'other'], t: 'Спортзалы и залы', c: '#38bdf8', e: '🏸', g: 'Спорт' },
+  { id: 'lPool', layer: 'pool', t: 'Бассейны города (крытые и летние)', c: '#3b82f6', e: '🏊', g: 'Спорт' },
+  { id: 'lFit', layer: 'fit', t: 'Фитнес-центры', c: '#fb923c', e: '💪', g: 'Спорт' },
+  { id: 'lHosp', layer: 'hosp', t: 'Больницы', c: '#ef4444', e: '🏥', g: 'Здоровье' },
+  { id: 'lDocGp', layer: 'doc', sub: ['gp'], t: 'Врачи общей практики', c: '#fca5a5', e: '🩺', g: 'Здоровье' },
+  { id: 'lDocKid', layer: 'doc', sub: ['kids'], t: 'Детские врачи', c: '#f9a8d4', e: '🩺', g: 'Здоровье' },
+  { id: 'lDocDent', layer: 'doc', sub: ['dent'], t: 'Стоматологи', c: '#e9d5ff', e: '🦷', g: 'Здоровье' },
+  { id: 'lDocGyn', layer: 'doc', sub: ['gyn'], t: 'Гинекологи', c: '#fbcfe8', e: '🩺', g: 'Здоровье' },
+  { id: 'lDocSpec', layer: 'doc', sub: ['spec'], t: 'Другие специалисты', c: '#d4d4d8', e: '🩺', g: 'Здоровье' },
+  { id: 'lDog', layer: 'dog', t: 'Зоны для собак', c: '#a3e635', e: '🐕', g: 'Город' },
+  { id: 'lFuel', layer: 'fuel', t: 'Заправки', c: '#facc15', e: '⛽', g: 'Город' },
+  { id: 'lCool', layer: 'cool', t: '«Прохладные зоны» в жару', c: '#67e8f9', e: '❄️', g: 'Город' },
+];
+const mpDef = p => MP.find(d => d.layer === p.layer && (!d.sub || d.sub.includes(p.sub)));
+S.mp = null; S.mpLoading = null;
+function loadMp() {
+  if (S.mp) return Promise.resolve(S.mp);
+  return S.mpLoading ||= (async () => {
+    const all = []; let from = 0;
+    while (true) {
+      const r = await sb.from('map_points').select('id,layer,sub,name,props,lng,lat').range(from, from + 999);
+      if (r.error || !r.data.length) break; all.push(...r.data); if (r.data.length < 1000) break; from += 1000;
+    }
+    S.mp = all.map(p => ({ ...p, lng: +p.lng, lat: +p.lat, d: mpDef(p) })).filter(p => p.d);
+    S.mpById = new Map(S.mp.map(p => [p.id, p]));
+    return S.mp;
+  })();
+}
+function mpPopup(id) {
+  const p = S.mpById?.get(id); if (!p) return '';
+  const q = p.props || {};
+  const extra = p.layer === 'school' ? [q.type, q.care] : p.layer === 'kiga' ? [q.op && q.op !== p.name ? q.op : null, q.type, q.places ? q.places + ' мест' : null]
+    : p.layer === 'dog' ? [q.type === 'Hundeauslaufplatz' ? 'большая площадка для выгула' : 'зона для собак', q.area, q.fence === 'ja' ? 'огорожена' : null, q.water && q.water !== 'keine' ? 'есть поилка' : null]
+    : p.layer === 'doc' ? [q.fach] : p.layer === 'sport' ? [q.what, q.cat] : p.layer === 'fuel' ? [q.street, q.hours, q.lpg === 'yes' ? 'LPG' : null, q.wash === 'yes' ? 'мойка' : null]
+    : p.layer === 'play' ? [q.type, q.what] : p.layer === 'cool' ? [q.hours] : [q.type];
+  return `<b>${p.d.e} ${esc(p.name || p.d.t)}</b><br><small>${esc(p.d.t)}</small>${[q.addr, ...extra].filter(Boolean).map(x => '<br><small>' + esc(String(x)) + '</small>').join('')}${q.web ? `<br><a href="${esc(q.web)}" target="_blank" rel="noopener">сайт ↗</a>` : ''}`;
+}
+async function pushMp() {
+  const on = MP.filter(d => $(d.id) && $(d.id).checked);
+  vis(['mp-dot', 'mp-label'], on.length > 0);
+  if (!on.length || !map.getSource('mp')) return;
+  await loadMp();
+  const ids = new Set(on.map(d => d.id));
+  map.getSource('mp').setData(fc(S.mp.filter(p => ids.has(p.d.id)).map(p => ({ type: 'Feature',
+    properties: { id: p.id, c: p.d.c, e: p.d.e, n: p.name || '', priv: !!p.d.priv }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } }))));
+  const miss = on.filter(d => !S.mp.some(p => p.d.id === d.id));
+  if (miss.length) toast('Пока нет данных: ' + miss.map(d => d.t).join(', ') + ' — загрузятся после обновления базы.', 4500);
+}
+// новые трамваи: 12 и 27 (осень 2025), продление 18 до Stadion (5.09.2026) + планы
+const TRAM_NEW = { '12': ['осень 2025', 'Новая линия 12: Josefstädter Straße — Nordbahnviertel — Hillerstraße (2,2 км новых путей).'],
+  '27': ['осень 2025', 'Новая линия 27: Strebersdorf — U2 Aspernstraße через Donaustadt (2,4 км новых путей).'],
+  '18': ['с 5.09.2026', 'Продление 18: U3 Schlachthausgasse — через Prater — U2 Stadion. 3,1 км, 7 новых остановок.'] };
+const TRAM_PLAN = [
+  ['Wienerbergtangente', 'стройка с 2028', 'Новая линия: Schedifkaplatz — Stefan-Fadinger-Platz — Raxstraße — U1 Altes Landgut. Трасса примерная, дата открытия не названа.', [[16.3303, 48.1733], [16.344, 48.170], [16.3569, 48.1662], [16.370, 48.164], [16.383, 48.1628]]],
+  ['25 · Donaufeld', 'стройка ≥ 2028', 'Новая трасса линии 25 через Donaufeld: Prandaugasse — Fultonstraße. Трасса примерная.', [[16.4335, 48.2452], [16.425, 48.248], [16.412, 48.2507]]],
+  ['12 · 2-й участок', 'дата не названа', 'Второй участок линии 12: Rauscherstraße — Traisengasse. Трасса примерная.', [[16.3779, 48.2295], [16.3825, 48.2325], [16.387, 48.2352]]],
+];
+function pushNewTram() {
+  const on = $('lNewTram').checked; vis(['nt-glow', 'nt-line', 'tp-line', 'nt-label'], on); if (!on || !map.getSource('nt')) return;
+  const feats = [];
+  for (const f of (S.transit?.tram?.features || [])) {
+    const ref = f.properties.ref; if (!TRAM_NEW[ref]) continue;
+    let g = f.geometry;
+    if (ref === '18') { // только новый участок восточнее Schlachthausgasse
+      const lines = (g.type === 'MultiLineString' ? g.coordinates : [g.coordinates]).map(l => l.filter(c => c[0] > 16.4036)).filter(l => l.length > 1);
+      g = { type: 'MultiLineString', coordinates: lines };
+    }
+    feats.push({ type: 'Feature', properties: { st: 'open', line: ref, open: TRAM_NEW[ref][0], note: TRAM_NEW[ref][1] }, geometry: g });
+  }
+  for (const [line, open, note, co] of TRAM_PLAN) feats.push({ type: 'Feature', properties: { st: 'plan', line, open, note }, geometry: { type: 'LineString', coordinates: co } });
+  map.getSource('nt').setData(fc(feats));
+}
+async function pushBike() {
+  const on = $('lBike').checked; vis(['bike-line'], on); if (!on || S.bikeLoaded) return;
+  S.bikeLoaded = true; toast('Загружаю велодорожки города…', 2000);
+  try {
+    const j = await fetch('https://data.wien.gv.at/daten/geo?service=WFS&request=GetFeature&version=1.1.0&typeName=ogdwien:RADWEGEOGD&srsName=EPSG:4326&outputFormat=json&propertyName=MERKMAL,SUBMERKMAL,SHAPE').then(r => r.json());
+    for (const f of j.features) { const m = (f.properties.MERKMAL || '') + ' ' + (f.properties.SUBMERKMAL || '');
+      f.properties = { k: /baulich|radweg$|getrennt/i.test(m) && !/markiert/i.test(m) ? 'sep' : /markiert|streifen/i.test(m) ? 'lane' : /gemischt|geh- und rad|fußgänger|wohnstraße|begegnung|fahrradstraße/i.test(m) ? 'mixed' : 'other', m }; }
+    map.getSource('bike').setData(j);
+  } catch (e) { S.bikeLoaded = false; toast('Велодорожки не загрузились: ' + e.message, 4000); }
+}
+// раздел «Что рядом» в карточке дома
+const hav = (a, b, c, d) => { const R = 6371000, r = Math.PI / 180, x = (c - a) * r * Math.cos((b + d) / 2 * r), y = (d - b) * r; return Math.hypot(x, y) * R; };
+const fmtM = m => m < 1000 ? Math.round(m / 10) * 10 + ' м' : (m / 1000).toFixed(1).replace('.', ',') + ' км';
+async function loadLage(b) {
+  const box = $('lageBox'); if (!box) return;
+  await loadMp(); if (!$('lageBox')) return;
+  const groups = {};
+  const add = (g, label, pts, e) => {
+    const near = pts.map(p => ({ p, m: hav(b.lng, b.lat, p.lng, p.lat) })).sort((x, y) => x.m - y.m);
+    const n5 = near.filter(x => x.m <= 500).length, n10 = near.filter(x => x.m <= 1000).length, best = near[0];
+    (groups[g] ||= []).push({ label, e, best, n5, n10 });
+  };
+  for (const d of MP) { const pts = S.mp.filter(p => p.d.id === d.id); if (pts.length) add(d.g, d.t, pts, d.e); }
+  if (S.osm?.length) { add('Каждый день', 'Супермаркет', S.osm.filter(p => p.kind === 'shop'), '🛒'); add('Каждый день', 'Аптека', S.osm.filter(p => p.kind === 'pharmacy'), '✚'); add('Каждый день', 'Почта', S.osm.filter(p => p.kind === 'post'), '✉'); }
+  const order = ['Каждый день', 'Дети', 'Спорт', 'Здоровье', 'Город'];
+  const walk = m => Math.max(1, Math.round(m / 80)) + ' мин';
+  box.innerHTML = order.filter(g => groups[g]).map(g => `<div class="lgg"><div class="lgh">${g}</div>${groups[g].map(r => {
+    const cls = !r.best ? '' : r.best.m <= 400 ? 'good' : r.best.m <= 900 ? '' : 'far';
+    return `<div class="lgr ${cls}"><span class="lge">${r.e}</span><span class="lgt">${esc(r.label)}${r.best ? `<small>${esc(r.best.p.name || '')}</small>` : ''}</span>
+      <span class="lgd">${r.best ? `<b>${fmtM(r.best.m)}</b><small>${walk(r.best.m)} пешком · ${r.n5} до 500 м · ${r.n10} до 1 км</small>` : '—'}</span></div>`; }).join('')}</div>`).join('')
+    + '<div class="src">Расстояние по прямой, пешком ≈ 80 м/мин. Школы, сады, площадки, спорт, бассейны, больницы, врачи, зоны для собак — открытые данные Stadt Wien (data.wien.gv.at, CC BY 4.0); магазины и заправки — OpenStreetMap.</div>';
+  const best = (groups['Каждый день'] || []).concat(groups['Дети'] || []).filter(r => r.best);
+  if ($('lageSum')) $('lageSum').textContent = best.length ? `${best.filter(r => r.best.m <= 500).length} из ${best.length} рядом` : '';
+}
+
 /* ---------- солнце: стороны света, восход и закат у выбранного дома ---------- */
 function sunTimes(date, lat, lng) {
   const rad = Math.PI / 180, N = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 864e5);
@@ -1563,7 +1714,7 @@ function syncLayerToggles() {
   map.setConfigProperty('basemap', 'showPointOfInterestLabels', $('lPoiLabels').checked);
   map.setConfigProperty('basemap', 'colorGreenspace', $('lGreen').checked ? GREEN_ON : THEMES[S.theme].colorGreenspace);
   vis(['mk-dot'], $('lMarket').checked); if ($('lMarket').checked) pushMarket();
-  pushOsm();
+  pushOsm(); pushMp(); pushNewTram(); pushBike();
   vis(['sun-ring', 'sun-line', 'sun-label'], $('lSun').checked); if ($('lSun').checked) pushSun();
   const per = $('noiseNight').checked ? 'night' : 'day';
   for (const k of NOISE_KEYS) for (const p of ['day', 'night'])
@@ -1574,10 +1725,10 @@ function syncLayerToggles() {
     lg.src = `${NOISE_WMS}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&sld_version=1.1.0&layer=2022_STRASSE_${per === 'day' ? '24H' : 'NACHT'}_ZONEN_OE`;
     lg.hidden = false;
   } else lg.hidden = true;
-  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun'].map(k => [k, $(k).checked]))));
+  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun', 'lNewTram', 'lBike', ...MP.map(d => d.id)].map(k => [k, $(k).checked]))));
 }
 try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of Object.entries(saved)) if ($(k)) $(k).checked = v; } catch {}
-[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun'].forEach(id => $(id).onchange = syncLayerToggles);
+[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun', 'lNewTram', 'lBike', ...MP.map(d => d.id)].forEach(id => $(id).onchange = syncLayerToggles);
 $('noiseDay').onchange = syncLayerToggles;
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 

@@ -387,3 +387,12 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .bgrp div{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
 .bgrp a{font-size:12px;padding:3px 9px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:inherit;text-decoration:none}
 .bgrp a:hover{border-color:#f5a524}
+
+.sw-nt{background:#ff4d6d}.sw-bike{background:#22c55e}
+.ftitle.sm2{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:10px 0 2px}
+/* «Что рядом» */
+.lgg{margin:4px 0 10px}.lgh{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:6px 0 2px}
+.lgr{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:start;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+.lge{text-align:center}.lgt{display:flex;flex-direction:column}.lgt small,.lgd small{font-size:11px;color:var(--dim)}
+.lgd{text-align:right;display:flex;flex-direction:column}.lgd b{font-family:'JetBrains Mono',monospace;font-weight:600}
+.lgr.good .lgd b{color:#4ade80}.lgr.far .lgd b{color:#f87171}
