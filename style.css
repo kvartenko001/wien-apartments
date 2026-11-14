@@ -406,3 +406,15 @@ select.mini{background:transparent;color:inherit;border:1px solid var(--line);bo
 .heatv.cool{background:rgba(59,130,246,.14)}.heatv.cool b{color:#60a5fa}
 .heatv.hot{background:rgba(249,115,22,.14)}.heatv.hot b{color:#fb923c}
 .heatv.vhot{background:rgba(239,68,68,.16)}.heatv.vhot b{color:#f87171}
+
+/* оценка локации */
+.scoreh{display:flex;gap:14px;align-items:center;margin:4px 0 10px}
+.scorev{width:74px;height:74px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;border:3px solid currentColor}
+.scorev b{font-size:26px;line-height:1;font-family:'JetBrains Mono',monospace}.scorev small{font-size:10px;color:var(--dim)}
+.scoreg{font-size:16px;font-weight:700;margin-bottom:6px}
+.g5{color:#22c55e}.g4{color:#84cc16}.g3{color:#facc15}.g2{color:#fb923c}.g1{color:#ef4444}
+.scr{border-top:1px solid rgba(255,255,255,.05)}.scr summary{display:grid;grid-template-columns:1fr 90px 30px;gap:10px;align-items:center;padding:6px 0;cursor:pointer;list-style:none}
+.scr summary::-webkit-details-marker{display:none}.sct{display:flex;flex-direction:column;font-size:13px}.sct small{font-size:11px;color:var(--dim)}
+.scb{height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}.scb i{display:block;height:100%;background:currentColor}
+.scr summary b{text-align:right;font-family:'JetBrains Mono',monospace}.scw{font-size:12px;color:var(--dim);padding:0 0 8px 2px;line-height:1.55}
+.scr.off{opacity:.45}.scs{font-weight:700;font-family:'JetBrains Mono',monospace}

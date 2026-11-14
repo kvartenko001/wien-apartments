@@ -555,6 +555,7 @@ function renderDetail(id) {
     ${b.pass ? '' : `<div class="why">Не проходит: ${b.why.join(' · ')}</div>`}
     <div class="lhead2"><b>Объявления</b><span class="rmeta">${ls.length ? ls.length + ' · листай →' : 'сейчас нет'}</span></div>
     <div class="lscroll">${cards || '<p class="hint">Сейчас в этом доме ничего не сдаётся. Сборщик проверяет каждое утро.</p>'}</div>
+    ${section('score', 'Оценка локации', '<div id="scoreBox"><span class="rmeta">считаю…</span></div>', '<span id="scoreSum"></span>')}
     ${section('lage', 'Что рядом', '<div id="lageBox"><span class="rmeta">считаю…</span></div>', '<span id="lageSum"></span>')}
     ${section('heat', 'Жара летом', '<div id="heatBox"><span class="rmeta">считаю по спутнику…</span></div>', '<span id="heatSum"></span>')}
     ${section('noise', 'Шум у дома', '<div id="noiseBox"><span class="rmeta">считаю…</span></div>', '<span id="noiseSum"></span>')}
@@ -569,9 +570,8 @@ function renderDetail(id) {
   $('detailBody').querySelector('.lscroll').onclick = e => { const st = e.target.closest('.star'); if (st) { e.preventDefault(); toggleFav(+st.dataset.id); return; }
     const a = e.target.closest('.mcard[data-mid]'); const g = a && (S.mkGroups || []).find(q => String(q.mid) === a.dataset.mid); if (g) { e.preventDefault(); openListing(g); } };
   loadRoutes(b);
-  loadNoise(b);
   loadLage(b);
-  loadHeat(b);
+  Promise.allSettled([loadNoise(b), loadHeat(b)]).then(() => loadScore(b));
 }
 function section(k, title, body, sum) {
   const open = localGet('sec_' + k, k === 'route' ? '0' : '1') === '1';
@@ -1282,6 +1282,7 @@ async function loadHeat(b) {
   const ok = vals.filter(Boolean);
   if (!ok.length) { box.innerHTML = '<span class="rmeta">Для этой точки значения нет: на снимках здесь вода или маска облаков — либо сервер снимков не ответил. Включи «Карту жары» в слоях и посмотри цвет вокруг.</span>'; return; }
   const avg = ok.reduce((a, x) => a + x.dt, 0) / ok.length;
+  (S.heat ||= {})[b.id] = avg;
   const lvl = avg <= -3 ? ['cool', 'прохладно — много зелени или воды рядом'] : avg <= -1 ? ['cool', 'прохладнее среднего по Вене'] : avg < 1 ? ['', 'как в среднем по Вене']
     : avg < 3 ? ['hot', 'жарче среднего: много асфальта и крыш'] : ['vhot', 'очень жарко: «остров тепла»'];
   const sgn = x => (x > 0 ? '+' : x < 0 ? '−' : '±') + Math.abs(x).toFixed(1).replace('.', ',');
@@ -1289,6 +1290,48 @@ async function loadHeat(b) {
     ${ok.map(x => `<div class="bl"><span>${x.date}<small>поверхность у дома · среднее по городу ${heatC(x.med).toFixed(1).replace('.', ',')} °C</small></span><b>${x.t.toFixed(1).replace('.', ',')} °C <em>${sgn(x.dt)}</em></b></div>`).join('')}
     <div class="src">Это температура <b>поверхности</b> (крыши, асфальт, газоны) в жаркий солнечный день по спутнику Landsat, а не температура воздуха. Хорошо показывает «острова тепла»: асфальт и плотная застройка — красное, парки, деревья, вода — синее. Ночную жару снимки не показывают. Два независимых снимка: 2026 и 2025. Данные: USGS/NASA Landsat через Microsoft Planetary Computer.</div>`;
   if ($('heatSum')) $('heatSum').textContent = sgn(avg) + ' °C';
+}
+
+/* ---------- оценка локации 0–100 (методика: docs/12-location-score.md) ---------- */
+const SC = [ // ключ, название, вес «общий», вес «пара без детей» = общий без «Дети»
+  ['transit', 'Транспорт', 25], ['daily', 'Каждый день', 20], ['kids', 'Дети', 15], ['green', 'Зелень', 15],
+  ['sport', 'Спорт и больница', 5], ['quiet', 'Тишина', 10], ['climate', 'Климат летом', 10] ];
+const lin = (x, good, bad) => x == null ? null : Math.max(0, Math.min(100, 100 * (bad - x) / (bad - good)));
+const fm = o => o && o.m != null ? `${o.n ? esc(o.n) + ' · ' : ''}${fmtM(o.m * 1.25)} пешком` : 'нет рядом';
+async function loadScore(b) {
+  const box = $('scoreBox'); if (!box) return;
+  const { data, error } = await sb.rpc('loc_score', { p_lng: b.lng, p_lat: b.lat });
+  if (!$('scoreBox')) return;
+  if (error || !data) { box.innerHTML = `<span class="rmeta">не получилось: ${esc(error?.message || 'нет ответа')}</span>`; return; }
+  const nz = S.noise?.[b.id];
+  const lden = nz ? (() => { const mx = Math.max(0, ...Object.values(nz).map(x => x?.lden?.max || 0)); return mx ? mx + 2 : 52; })() : null;
+  const heat = S.heat?.[b.id] ?? null;
+  const v = { ...data.prox, quiet: lin(lden, 50, 75), climate: lin(heat, -3, 4) };
+  const r = data.raw, pct = data.ref?.pct || {}, nref = data.ref?.n || 0;
+  const prof = localGet('scoreProf', 'couple');
+  const W = Object.fromEntries(SC.map(([k, , w]) => [k, prof === 'couple' && k === 'kids' ? 0 : w]));
+  const avail = SC.filter(([k]) => v[k] != null && W[k] > 0);
+  const sw = avail.reduce((a, [k]) => a + W[k], 0);
+  const total = Math.round(avail.reduce((a, [k]) => a + W[k] * v[k], 0) / sw);
+  const grade = total >= 80 ? ['отлично', 'g5'] : total >= 65 ? ['хорошо', 'g4'] : total >= 50 ? ['средне', 'g3'] : total >= 35 ? ['слабо', 'g2'] : ['плохо', 'g1'];
+  const why = {
+    transit: `U-Bahn: ${fm(r['stop:u'])}<br>S-Bahn: ${fm(r['stop:s'])}<br>Остановок трамвая и автобуса в 400 м: ${r.stops400 ?? 0}`,
+    daily: `Супермаркет: ${fm(r['osm:shop'])}<br>Аптека: ${fm(r['osm:pharmacy'])}<br>Hausarzt: ${fm(r['doc:gp'])}<br>Почта: ${fm(r['osm:post'])}`,
+    kids: `Детсад: ${fm(r['kiga:*'])}<br>Школа: ${fm(r['school:*'])}<br>Площадка: ${fm(r['play:*'])}`,
+    green: `Парк от 0,5 га: ${fm(r['green:park'])}<br>Большая зелень от 10 га: ${fm(r['green:big'])}`,
+    sport: `Спортплощадка: ${fm(r['sport:outdoor'])}<br>Фитнес: ${fm(r['fit:*'])}<br>Бассейн: ${fm(r['pool:*'])}<br>Больница: ${fm(r['hosp:*'])}`,
+    quiet: lden == null ? 'нет данных о шуме' : `самый громкий фасад ≈ ${lden} дБ днём (Lden); 50 дБ и тише = 100, 75 дБ = 0`,
+    climate: heat == null ? 'нет данных со спутника' : `поверхность ${heat > 0 ? '+' : '−'}${Math.abs(heat).toFixed(1).replace('.', ',')} °C к медиане Вены; −3 °C = 100, +4 °C = 0`,
+  };
+  const cls = x => x >= 75 ? 'g5' : x >= 55 ? 'g4' : x >= 40 ? 'g3' : x >= 25 ? 'g2' : 'g1';
+  box.innerHTML = `<div class="scoreh"><div class="scorev ${grade[1]}"><b>${total}</b><small>из 100</small></div>
+      <div><div class="scoreg">${grade[0]}</div><div class="seg small" id="scoreProf"><button data-p="couple" class="${prof === 'couple' ? 'on' : ''}">пара без детей</button><button data-p="all" class="${prof === 'all' ? 'on' : ''}">общий</button></div></div></div>
+    ${SC.map(([k, t]) => { const x = v[k]; const off = W[k] === 0;
+      return `<details class="scr${off ? ' off' : ''}"><summary><span class="sct">${t}<small>${off ? 'не учитывается в профиле' : `вес ${Math.round(W[k] / sw * 100)} %`}${pct[k] != null && nref ? ` · лучше, чем у ${pct[k]} % квартир рынка` : ''}</small></span>
+        <span class="scb"><i class="${x == null ? '' : cls(x)}" style="width:${x == null ? 0 : x}%"></i></span><b>${x == null ? '—' : Math.round(x)}</b></summary><div class="scw">${why[k]}</div></details>`; }).join('')}
+    <div class="src">Расстояния — пешком (прямое × 1,25). Полный балл до ~5 минут пешком, ноль после ~15 (транспорт, магазины), для больницы и бассейна — шире. Сравнение с рынком — ${nref ? nref.toLocaleString('ru') + ' реальных адресов объявлений Вены' : 'эталон ещё считается'}. Нет данных — часть не учитывается, вес делится между остальными. Методика: docs/12-location-score.md.</div>`;
+  box.querySelector('#scoreProf').onclick = e => { const bt = e.target.closest('button'); if (!bt) return; localSet('scoreProf', bt.dataset.p); loadScore(b); };
+  if ($('scoreSum')) $('scoreSum').innerHTML = `<span class="scs ${grade[1]}">${total}/100</span>`;
 }
 
 /* ---------- Lagecheck: что рядом с домом (открытые данные Stadt Wien + OSM) ---------- */
