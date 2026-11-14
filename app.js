@@ -1300,14 +1300,22 @@ const lin = (x, good, bad) => x == null ? null : Math.max(0, Math.min(100, 100 *
 const fm = o => o && o.m != null ? `${o.n ? esc(o.n) + ' · ' : ''}${fmtM(o.m * 1.25)} пешком` : 'нет рядом';
 async function loadScore(b) {
   const box = $('scoreBox'); if (!box) return;
-  const { data, error } = await sb.rpc('loc_score', { p_lng: b.lng, p_lat: b.lat });
+  const [{ data, error }, oevR, bikeR] = await Promise.all([
+    sb.rpc('loc_score', { p_lng: b.lng, p_lat: b.lat }),
+    (S.oev ||= {})[b.id] ? Promise.resolve({ data: S.oev[b.id] }) : sb.functions.invoke('oev', { body: { lng: b.lng, lat: b.lat } }),
+    sb.rpc('bike_score', { p_lng: b.lng, p_lat: b.lat })]);
   if (!$('scoreBox')) return;
+  const oev = oevR?.data && !oevR.data.error ? (S.oev[b.id] = oevR.data) : null, bike = bikeR?.data || null;
+  const oevPct = oev ? (await sb.rpc('oev_pct', { p_score: oev.score })).data : null;
   if (error || !data) { box.innerHTML = `<span class="rmeta">не получилось: ${esc(error?.message || 'нет ответа')}</span>`; return; }
   const nz = S.noise?.[b.id];
   const lden = nz ? (() => { const mx = Math.max(0, ...Object.values(nz).map(x => x?.lden?.max || 0)); return mx ? mx + 2 : 52; })() : null;
   const heat = S.heat?.[b.id] ?? null;
-  const v = { ...data.prox, quiet: lin(lden, 50, 75), climate: lin(heat, -3, 4) };
-  const r = data.raw, pct = data.ref?.pct || {}, nref = data.ref?.n || 0;
+  const bikeS = bike && bike.score != null && (bike.near_m != null) ? +bike.score : null;
+  const transit = oev ? (bikeS != null ? 0.9 * oev.score + 0.1 * bikeS : oev.score) : data.prox.transit;
+  const v = { ...data.prox, transit, quiet: lin(lden, 50, 75), climate: lin(heat, -3, 4) };
+  const r = data.raw, pct = { ...(data.ref?.pct || {}) }, nref = data.ref?.n || 0;
+  if (oev) pct.transit = oevPct && oevPct.n >= 100 ? oevPct.pct : null;
   const prof = localGet('scoreProf', 'couple');
   const W = Object.fromEntries(SC.map(([k, , w]) => [k, prof === 'couple' && k === 'kids' ? 0 : w]));
   const avail = SC.filter(([k]) => v[k] != null && W[k] > 0);
@@ -1315,7 +1323,7 @@ async function loadScore(b) {
   const total = Math.round(avail.reduce((a, [k]) => a + W[k] * v[k], 0) / sw);
   const grade = total >= 80 ? ['отлично', 'g5'] : total >= 65 ? ['хорошо', 'g4'] : total >= 50 ? ['средне', 'g3'] : total >= 35 ? ['слабо', 'g2'] : ['плохо', 'g1'];
   const why = {
-    transit: `U-Bahn: ${fm(r['stop:u'])}<br>S-Bahn: ${fm(r['stop:s'])}<br>Остановок трамвая и автобуса в 400 м: ${r.stops400 ?? 0}`,
+    transit: oev ? oevWhy(oev, bike, oevPct) : `U-Bahn: ${fm(r['stop:u'])}<br>S-Bahn: ${fm(r['stop:s'])}<br>Остановок трамвая и автобуса в 400 м: ${r.stops400 ?? 0}<br><i>Расписание сейчас не загрузилось — показан упрощённый расчёт.</i>`,
     daily: `Супермаркет: ${fm(r['osm:shop'])}<br>Аптека: ${fm(r['osm:pharmacy'])}<br>Hausarzt: ${fm(r['doc:gp'])}<br>Почта: ${fm(r['osm:post'])}`,
     kids: `Детсад: ${fm(r['kiga:*'])}<br>Школа: ${fm(r['school:*'])}<br>Площадка: ${fm(r['play:*'])}`,
     green: `Парк от 0,5 га: ${fm(r['green:park'])}<br>Большая зелень от 10 га: ${fm(r['green:big'])}`,
@@ -1332,6 +1340,21 @@ async function loadScore(b) {
     <div class="src">Расстояния — пешком (прямое × 1,25). Полный балл до ~5 минут пешком, ноль после ~15 (транспорт, магазины), для больницы и бассейна — шире. Сравнение с рынком — ${nref ? nref.toLocaleString('ru') + ' реальных адресов объявлений Вены' : 'эталон ещё считается'}. Нет данных — часть не учитывается, вес делится между остальными. Методика: docs/12-location-score.md.</div>`;
   box.querySelector('#scoreProf').onclick = e => { const bt = e.target.closest('button'); if (!bt) return; localSet('scoreProf', bt.dataset.p); loadScore(b); };
   if ($('scoreSum')) $('scoreSum').innerHTML = `<span class="scs ${grade[1]}">${total}/100</span>`;
+}
+
+// подробности по транспорту: ÖV-Güteklasse (ÖROK), линии рядом, время до центра, велосипед
+const KL_TXT = { A: 'высшая (A)', B: 'высокая (B)', C: 'очень хорошая (C)', D: 'хорошая (D)', E: 'средняя (E)', F: 'базовая (F)', G: 'минимальная (G)' };
+const KIND_TXT = { U: 'U-Bahn', S: 'S-Bahn', R: 'поезд', B: 'Badner Bahn', T: 'трамвай', Bus: 'автобус' };
+function oevWhy(o, bike, pct) {
+  const best = o.best;
+  const byKind = {}; for (const l of o.lines500 || []) (byKind[l.kind] ||= []).push(l.num);
+  const lines = Object.entries(byKind).map(([k, ls]) => `${KIND_TXT[k] || k}: <b>${ls.map(esc).join(', ')}</b>`).join('<br>') || 'в 500 м пешком линий нет';
+  return `<b>ÖV-Güteklasse: ${o.klasse ? KL_TXT[o.klasse] : 'нет (слишком далеко или редко)'}</b> — официальная методика ÖROK: вид транспорта × интервал × пешее расстояние.
+    ${best ? `<br>Лучшая остановка: ${esc(best.name)}, ${best.dist} м пешком (${best.walk || Math.round(best.dist / 80)} мин), отправление в среднем каждые ${String(best.iv).replace('.', ',')} мин в одну сторону` : ''}
+    <br><br>Линии в 500 м пешком:<br>${lines}
+    <br><br>До центра (Stephansplatz), будни, прибытие к 8:30: <b>${o.center != null ? o.center + ' мин' : '—'}</b> от двери до двери
+    ${bike && bike.near_m != null ? `<br>Велосипед: дорожка/полоса в ${fmtM(bike.near_m)}, ${String(bike.km500 ?? 0).replace('.', ',')} км велоинфраструктуры в 500 м` : ''}
+    <br><br><small>Части: класс ÖROK ${o.parts.klasse} · разнообразие ${o.parts.variety} · время до центра ${o.parts.center ?? '—'}${bike?.score != null ? ' · велосипед ' + Math.round(bike.score) : ''}. Веса: 50 / 15 / 25 / 10. Расписание: Wiener Linien/VOR, обычный вторник ${o.date.slice(6, 8)}.${o.date.slice(4, 6)}, 7–9 и 12–14 ч.${pct?.n ? ` Эталон: ${pct.n} адресов рынка.` : ''}</small>`;
 }
 
 /* ---------- Lagecheck: что рядом с домом (открытые данные Stadt Wien + OSM) ---------- */

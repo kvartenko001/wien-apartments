@@ -25,3 +25,4 @@
 она в документах claude.ai Project «Wien / apartment search :)» (`claude/devlog.md`, `claude/devlog-2.md`, `claude/schema-v0.md`,
 `claude/kb-personal.md`) и в папке проекта на компьютере.
 - [12-location-score.md](12-location-score.md) — оценка локации 0–100: методика, веса, данные
+- [13-transit-score.md](13-transit-score.md) — транспорт v2: ÖV-Güteklassen ÖROK, частота, разнообразие, время до центра, велосипед
