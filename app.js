@@ -256,12 +256,13 @@ map.on('style.load', async () => {
     paint: { 'text-color': '#ffb3c1', 'text-halo-color': '#000', 'text-halo-width': 1.6 } });
   map.on('click', 'nt-line', e => toast(e.features[0].properties.note, 5000)); map.on('click', 'tp-line', e => toast(e.features[0].properties.note, 6000));
 
-  // велодорожки (Stadt Wien, грузятся по требованию прямо с data.wien.gv.at)
+  // велодорожки (Stadt Wien RADWEGEOGD → наша база geo_bike, грузятся по требованию)
   map.addSource('bike', { type: 'geojson', data: fc([]) });
-  map.addLayer({ id: 'bike-line', type: 'line', source: 'bike', slot: 'middle', minzoom: 11, layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': ['match', ['get', 'k'], 'sep', '#22c55e', 'lane', '#86efac', 'mixed', '#fde68a', '#a3a3a3'],
-             'line-width': ['interpolate', ['linear'], ['zoom'], 11, ['match', ['get', 'k'], 'sep', 1.8, 1.1], 16, ['match', ['get', 'k'], 'sep', 4.5, 3]],
-             'line-opacity': 0.9, 'line-dasharray': ['case', ['==', ['get', 'k'], 'mixed'], ['literal', [2, 1.5]], ['literal', [1, 0]]] } });
+  const bikeW = ['interpolate', ['linear'], ['zoom'], 10, ['match', ['get', 'k'], 'sep', 1.4, 0.8], 16, ['match', ['get', 'k'], 'sep', 4.5, 3]];
+  map.addLayer({ id: 'bike-line', type: 'line', source: 'bike', slot: 'middle', minzoom: 9, filter: ['!=', ['get', 'k'], 'mixed'], layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': ['match', ['get', 'k'], 'sep', '#22c55e', 'lane', '#86efac', '#a3a3a3'], 'line-width': bikeW, 'line-opacity': 0.9 } });
+  map.addLayer({ id: 'bike-mixed', type: 'line', source: 'bike', slot: 'middle', minzoom: 9, filter: ['==', ['get', 'k'], 'mixed'], layout: { visibility: 'none', 'line-join': 'round' },
+    paint: { 'line-color': '#fde68a', 'line-width': bikeW, 'line-opacity': 0.9, 'line-dasharray': [2, 1.5] } });
 
   // Lagecheck: школы, сады, спорт, медицина, собаки, заправки… (открытые данные Stadt Wien + OSM)
   map.addSource('mp', { type: 'geojson', data: fc([]) });
@@ -1507,12 +1508,12 @@ function pushNewTram() {
   map.getSource('nt').setData(fc(feats));
 }
 async function pushBike() {
-  const on = $('lBike').checked; vis(['bike-line'], on); if (!on || S.bikeLoaded) return;
+  const on = $('lBike').checked; vis(['bike-line', 'bike-mixed'], on); if (!on || S.bikeLoaded) return;
   S.bikeLoaded = true; toast('Загружаю велодорожки города…', 2000);
   try {
-    const j = await fetch('https://data.wien.gv.at/daten/geo?service=WFS&request=GetFeature&version=1.1.0&typeName=ogdwien:RADWEGEOGD&srsName=EPSG:4326&outputFormat=json&propertyName=MERKMAL,SUBMERKMAL,SHAPE').then(r => r.json());
-    for (const f of j.features) { const m = (f.properties.MERKMAL || '') + ' ' + (f.properties.SUBMERKMAL || '');
-      f.properties = { k: /baulich|radweg$|getrennt/i.test(m) && !/markiert/i.test(m) ? 'sep' : /markiert|streifen/i.test(m) ? 'lane' : /gemischt|geh- und rad|fußgänger|wohnstraße|begegnung|fahrradstraße/i.test(m) ? 'mixed' : 'other', m }; }
+    // из нашей базы (geo_bike, обновляется раз в месяц из Stadt Wien RADWEGEOGD); WFS города из браузера часто отвечает ошибкой
+    const { data: j, error } = await sb.rpc('bike_geojson'); if (error) throw error;
+    if (!j?.features?.length) throw new Error('пусто');
     map.getSource('bike').setData(j);
   } catch (e) { S.bikeLoaded = false; toast('Велодорожки не загрузились: ' + e.message, 4000); }
 }
