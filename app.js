@@ -1462,7 +1462,7 @@ const MP = [ // id чекбокса, слой в map_points, подвиды, п�
   { id: 'lDocSpec', layer: 'doc', sub: ['spec'], t: 'Другие специалисты', c: '#d4d4d8', e: '🩺', g: 'Здоровье' },
   { id: 'lDog', layer: 'dog', t: 'Зоны для собак', c: '#a3e635', e: '🐕', g: 'Город' },
   { id: 'lFuel', layer: 'fuel', t: 'Заправки', c: '#facc15', e: '⛽', g: 'Город' },
-  { id: 'lCool', layer: 'cool', t: '«Прохладные зоны» в жару', c: '#67e8f9', e: '❄️', g: 'Город' },
+  { id: 'lCool', layer: 'cool', t: 'Coole Zonen: где переждать жару (кондиционер, вода)', c: '#67e8f9', e: '❄️', g: 'Город' },
 ];
 const mpDef = p => MP.find(d => d.layer === p.layer && (!d.sub || d.sub.includes(p.sub)));
 S.mp = null; S.mpLoading = null;
