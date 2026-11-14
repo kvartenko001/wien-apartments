@@ -392,7 +392,7 @@ async function load() {
     sb.from('poi_map').select('id,label,owner,address,lng,lat'),
     sb.from('transit_lines_v2').select('mode,ref,colour,geom')
   ]);
-  loadMarket(); loadOsm();
+  loadMarket(); loadOsm(); loadColl();
   sb.from('mortgage_rates').select('*').order('sort').then(r => { S.rates = r.data || []; });
   if (b.error) { toast('Ошибка базы: ' + b.error.message, 6000); return; }
   S.buildings = b.data.map(x => {
@@ -481,6 +481,35 @@ function applyFilters() {
   renderFeed(); pushMarket();
 }
 
+/* ---------- подборки домов (папки): снять, мечта, стиль, инвестиции ---------- */
+const COLL = [ ['rent', '🏠', 'Хотим снять'], ['dream', '✨', 'Дома мечты'], ['style', '🎨', 'Нравится стиль'],
+  ['invest_rent', '💶', 'Инвестиции: сдача'], ['invest_flip', '📈', 'Инвестиции: перепродажа'], ['watch', '👀', 'Наблюдаем'] ];
+S.coll = new Map(); S.collF = localGet('collF', '');
+async function loadColl() {
+  const { data } = await sb.from('building_collections').select('building_id,coll');
+  S.coll = new Map(); for (const r of data || []) (S.coll.get(r.building_id) || S.coll.set(r.building_id, new Set()).get(r.building_id)).add(r.coll);
+  renderList(); if (S.selected) renderCollRow(S.selected);
+}
+const collOf = id => S.coll.get(id) || new Set();
+function renderCollBar() {
+  const cnt = k => S.buildings.filter(b => collOf(b.id).has(k)).length;
+  $('collBar').innerHTML = `<button class="cchip${!S.collF ? ' on' : ''}" data-c="">Все <b>${S.buildings.length}</b></button>` +
+    COLL.map(([k, e, t]) => `<button class="cchip${S.collF === k ? ' on' : ''}" data-c="${k}" title="${t}">${e} ${t} <b>${cnt(k)}</b></button>`).join('');
+  $('collBar').onclick = e => { const c = e.target.closest('.cchip'); if (!c) return; S.collF = c.dataset.c; localSet('collF', S.collF); renderList(); };
+}
+function renderCollRow(id) {
+  const box = $('collRow'); if (!box) return; const set = collOf(id);
+  box.innerHTML = COLL.map(([k, e, t]) => `<button class="cchip sm${set.has(k) ? ' on' : ''}" data-c="${k}">${e} ${t}</button>`).join('');
+  box.onclick = async ev => { const c = ev.target.closest('.cchip'); if (!c) return; const k = c.dataset.c, has = collOf(id).has(k);
+    c.disabled = true;
+    const { error } = has ? await sb.from('building_collections').delete().eq('building_id', id).eq('coll', k)
+      : await sb.from('building_collections').insert({ building_id: id, coll: k });
+    c.disabled = false;
+    if (error) { toast('Не сохранилось: ' + error.message, 4000); return; }
+    if (has) collOf(id).delete(k); else (S.coll.get(id) || S.coll.set(id, new Set()).get(id)).add(k);
+    renderCollRow(id); renderList(); };
+}
+
 /* ---------- список ---------- */
 function minPrice(b) {
   const ls = (b.fit && b.fit.length ? b.fit : b.ls) || [];
@@ -488,14 +517,15 @@ function minPrice(b) {
   return Math.min(...ls.map(l => S.f.basis === 'gross' ? +l.rent_gross : +l.monthly_total));
 }
 function renderList() {
-  const arr = S.buildings.filter(b => b.pass || !S.f.hideFail).sort((a, b) => (b.pass - a.pass) || (minPrice(a) - minPrice(b)));
+  renderCollBar();
+  const arr = S.buildings.filter(b => (b.pass || !S.f.hideFail) && (!S.collF || collOf(b.id).has(S.collF))).sort((a, b) => (b.pass - a.pass) || (minPrice(a) - minPrice(b)));
   $('cnt').textContent = S.buildings.filter(b => b.pass).length + '/' + S.buildings.length;
   $('list').innerHTML = arr.map(b => {
     const p = minPrice(b);
     return `<div class="bcard${b.pass ? '' : ' fail'}${S.selected === b.id ? ' sel' : ''}" data-id="${b.id}">
       <div class="bhead">
         <div>
-          <div class="bname">${esc(b.name || b.street + ' ' + (b.house_no || ''))}<span class="status">${STATUS[b.our_status] || ''}</span></div>
+          <div class="bname">${esc(b.name || b.street + ' ' + (b.house_no || ''))}<span class="status">${STATUS[b.our_status] || ''}</span>${[...collOf(b.id)].map(k => `<span class="ci" title="${COLL.find(c => c[0] === k)?.[2] || ''}">${COLL.find(c => c[0] === k)?.[1] || ''}</span>`).join('')}</div>
           <div class="bmeta">${b.district ? b.district + '-й район' : 'район ?'}${b.year_built ? ' · ' + b.year_built : ''}${b.height_m ? ' · ' + Math.round(b.height_m) + ' м' : ''}${b.ls.length ? ' · ' + b.ls.length + ' объявл.' : ''}</div>
         </div>
         <div class="bprice">${isFinite(p) ? 'от ' + eur(p) : '—'}<small>${S.mode === 'buy' ? 'цена' : S.f.basis === 'gross' ? 'грязная' : 'полная/мес'}</small></div>
@@ -503,7 +533,7 @@ function renderList() {
       ${b.research_status === 'queued' ? '<div class="queued">⏳ на разборе: Claude соберёт данные и объявления</div>' : ''}
       ${b.pass ? '' : `<div class="why">${b.why.join(' · ')}</div>`}
     </div>`;
-  }).join('') || '<p class="hint">Пусто. Ослабь фильтры.</p>';
+  }).join('') || `<p class="hint">${S.collF ? 'В этой подборке пока нет домов. Открой дом и нажми нужную папку в его карточке.' : 'Пусто. Ослабь фильтры.'}</p>`;
   $('list').onclick = e => { const c = e.target.closest('.bcard'); if (c) select(c.dataset.id); };
 }
 
@@ -543,6 +573,7 @@ function renderDetail(id) {
   $('detailBody').innerHTML = `
     <div class="dname">${esc(b.name || b.street)}</div>
     <div class="daddr">${esc([b.street, b.house_no].filter(Boolean).join(' '))}, ${esc(b.zip || '')} · ${b.district ? b.district + '-й район' : ''} · ${STATUS[b.our_status] || ''}</div>
+    <div class="collrow" id="collRow"></div>
     <div class="facts">
       <div class="fact"><b>${b.year_built || '—'}</b><span>год</span></div>
       <div class="fact"><b>${b.height_m ? Math.round(b.height_m) + ' м' : (b.floors_total || '—')}</b><span>${b.height_m ? 'высота' : 'этажей'}</span></div>
@@ -570,6 +601,7 @@ function renderDetail(id) {
   $('detailBody').querySelector('.lscroll').onclick = e => { const st = e.target.closest('.star'); if (st) { e.preventDefault(); toggleFav(+st.dataset.id); return; }
     const a = e.target.closest('.mcard[data-mid]'); const g = a && (S.mkGroups || []).find(q => String(q.mid) === a.dataset.mid); if (g) { e.preventDefault(); openListing(g); } };
   loadRoutes(b);
+  renderCollRow(b.id);
   loadLage(b);
   Promise.allSettled([loadNoise(b), loadHeat(b)]).then(() => loadScore(b));
 }
