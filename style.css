@@ -430,3 +430,5 @@ select.mini{background:transparent;color:inherit;border:1px solid var(--line);bo
 
 .dleg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--dim);margin-bottom:3px}.dleg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 #dstatLegend{margin-left:0}
+
+.lgr.click{cursor:pointer;border-radius:6px;transition:background .15s}.lgr.click:hover{background:rgba(251,191,36,.08)}.lgr.on{background:rgba(251,191,36,.16);box-shadow:inset 3px 0 0 #fbbf24}

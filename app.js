@@ -261,6 +261,16 @@ map.on('style.load', async () => {
   const bikeW = ['interpolate', ['linear'], ['zoom'], 10, ['match', ['get', 'k'], 'sep', 1.4, 0.8], 16, ['match', ['get', 'k'], 'sep', 4.5, 3]];
   map.addLayer({ id: 'bike-line', type: 'line', source: 'bike', slot: 'middle', minzoom: 9, filter: ['!=', ['get', 'k'], 'mixed'], layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
     paint: { 'line-color': ['match', ['get', 'k'], 'sep', '#22c55e', 'lane', '#86efac', '#a3a3a3'], 'line-width': bikeW, 'line-opacity': 0.9 } });
+  map.addSource('lage-hl', { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'lage-hl-line', type: 'line', source: 'lage-hl', slot: 'top', filter: ['==', ['geometry-type'], 'LineString'],
+    paint: { 'line-color': '#fbbf24', 'line-width': 2.5, 'line-dasharray': [1.5, 1.2], 'line-emissive-strength': 1 } });
+  map.addLayer({ id: 'lage-hl-dot', type: 'circle', source: 'lage-hl', slot: 'top', filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': ['case', ['get', 'best'], 9, 6], 'circle-color': ['case', ['get', 'best'], '#fbbf24', '#fde68a'], 'circle-stroke-color': '#111', 'circle-stroke-width': 2, 'circle-emissive-strength': 1 } });
+  map.addLayer({ id: 'lage-hl-label', type: 'symbol', source: 'lage-hl', slot: 'top', filter: ['==', ['geometry-type'], 'Point'],
+    layout: { 'text-field': ['get', 'name'], 'text-size': ['case', ['get', 'best'], 13, 11], 'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'], 'text-max-width': 12, 'text-allow-overlap': false },
+    paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,.85)', 'text-halo-width': 1.4, 'text-emissive-strength': 1 } });
+  map.on('click', 'lage-hl-dot', e => { const p = e.features[0].properties;
+    new mapboxgl.Popup({ closeButton: false, className: 'mkpop' }).setLngLat(e.lngLat).setHTML(`<b>${esc(p.name || p.t)}</b><br><small>${esc(p.t)} · ${esc(p.dist)}</small>`).addTo(map); });
   map.addLayer({ id: 'bike-mixed', type: 'line', source: 'bike', slot: 'middle', minzoom: 9, filter: ['==', ['get', 'k'], 'mixed'], layout: { visibility: 'none', 'line-join': 'round' },
     paint: { 'line-color': '#fde68a', 'line-width': bikeW, 'line-opacity': 0.9, 'line-dasharray': [2, 1.5] } });
 
@@ -565,6 +575,7 @@ function select(id) {
   if ($('lSun').checked) pushSun();
 }
 function closeDetail() {
+  lageClear();
   S.selected = null; stopOrbit(); clearRoute();
   $('detail').hidden = true; $('cam').hidden = true;
   document.body.classList.remove('has-detail');
@@ -597,6 +608,7 @@ function renderDetail(id) {
     <div class="lscroll">${cards || '<p class="hint">Сейчас в этом доме ничего не сдаётся. Сборщик проверяет каждое утро.</p>'}</div>
     ${section('score', 'Оценка локации', '<div id="scoreBox"><span class="rmeta">считаю…</span></div>', '<span id="scoreSum"></span>')}
     ${section('lage', 'Что рядом', '<div id="lageBox"><span class="rmeta">считаю…</span></div>', '<span id="lageSum"></span>')}
+    ${section('area', 'Про район', '<div id="areaBox"><span class="rmeta">…</span></div>', '<span id="areaSum"></span>')}
     ${section('heat', 'Жара летом', '<div id="heatBox"><span class="rmeta">считаю по спутнику…</span></div>', '<span id="heatSum"></span>')}
     ${section('noise', 'Шум у дома', '<div id="noiseBox"><span class="rmeta">считаю…</span></div>', '<span id="noiseSum"></span>')}
     ${section('route', 'Дорога', `<div class="rwhen">${esc(routeWhenLabel())}</div>
@@ -611,7 +623,7 @@ function renderDetail(id) {
     const a = e.target.closest('.mcard[data-mid]'); const g = a && (S.mkGroups || []).find(q => String(q.mid) === a.dataset.mid); if (g) { e.preventDefault(); openListing(g); } };
   loadRoutes(b);
   renderCollRow(b.id);
-  loadLage(b);
+  lageClear(); loadLage(b); loadArea(b);
   Promise.allSettled([loadNoise(b), loadHeat(b)]).then(() => loadScore(b));
 }
 function section(k, title, body, sum) {
@@ -1531,22 +1543,51 @@ async function loadLage(b) {
   const add = (g, label, pts, e) => {
     const near = pts.map(p => ({ p, m: hav(b.lng, b.lat, p.lng, p.lat) })).sort((x, y) => x.m - y.m);
     const n5 = near.filter(x => x.m <= 500).length, n10 = near.filter(x => x.m <= 1000).length, best = near[0];
-    (groups[g] ||= []).push({ label, e, best, n5, n10 });
+    (groups[g] ||= []).push({ label, e, best, n5, n10, near });
   };
   for (const d of MP) { const pts = S.mp.filter(p => p.d.id === d.id); if (pts.length) add(d.g, d.t, pts, d.e); }
   if (S.osm?.length) { add('Каждый день', 'Супермаркет', S.osm.filter(p => p.kind === 'shop'), '🛒'); add('Каждый день', 'Аптека', S.osm.filter(p => p.kind === 'pharmacy'), '✚'); add('Каждый день', 'Почта', S.osm.filter(p => p.kind === 'post'), '✉'); }
   const order = ['Каждый день', 'Дети', 'Спорт', 'Здоровье', 'Город'];
   const walk = m => Math.max(1, Math.round(m / 80)) + ' мин';
+  S.lageRows = []; S.lageB = b;
   box.innerHTML = order.filter(g => groups[g]).map(g => `<div class="lgg"><div class="lgh">${g}</div>${groups[g].map(r => {
     const cls = !r.best ? '' : r.best.m <= 400 ? 'good' : r.best.m <= 900 ? '' : 'far';
-    return `<div class="lgr ${cls}"><span class="lge">${r.e}</span><span class="lgt">${esc(r.label)}${r.best ? `<small>${esc(r.best.p.name || '')}</small>` : ''}</span>
+    const i = S.lageRows.push(r) - 1;
+    return `<div class="lgr ${cls}${r.best ? ' click' : ''}" data-i="${i}" title="${r.best ? 'показать на карте' : ''}"><span class="lge">${r.e}</span><span class="lgt">${esc(r.label)}${r.best ? `<small>${esc(r.best.p.name || '')}</small>` : ''}</span>
       <span class="lgd">${r.best ? `<b>${fmtM(r.best.m)}</b><small>${walk(r.best.m)} пешком · ${r.n5} до 500 м · ${r.n10} до 1 км</small>` : '—'}</span></div>`; }).join('')}</div>`).join('')
-    + (() => { const d = S.dsoc?.d?.[b.district]; return !d ? '' : `<div class="lgg"><div class="lgh">Район (${b.district}-й, статистика)</div>
-      <div class="lgr"><span class="lge">🛡️</span><span class="lgt">Заявления в полицию 2024<small>весь район, по месту преступления · ${d.crime24 > d.crime23 ? '▲' : '▼'} ${Math.abs(Math.round((d.crime24 / d.crime23 - 1) * 100))} % к 2023</small></span><span class="lgd"><b>${d.crime24.toLocaleString('ru')}</b><small>всего · ${d.crime_per1000} на 1 000 жит. · место ${S.dsoc.rank[b.district]} из 23</small></span></div>
-      <div class="lgr"><span class="lge">🌍</span><span class="lgt">Иностранное гражданство<small>${d.top.slice(0, 3).map(t => `${esc(t.c)} ${String(t.pct).replace('.', ',')} %`).join(' · ')}</small></span><span class="lgd"><b>${String(d.foreign_pct).replace('.', ',')} %</b><small>жителей, 1.1.2025</small></span></div></div>`; })()
     + '<div class="src">Расстояние по прямой, пешком ≈ 80 м/мин. Школы, сады, площадки, спорт, бассейны, больницы, врачи, зоны для собак — открытые данные Stadt Wien (data.wien.gv.at, CC BY 4.0); магазины и заправки — OpenStreetMap.</div>';
+  box.querySelectorAll('.lgr.click').forEach(el => el.onclick = () => lageShow(+el.dataset.i, el));
   const best = (groups['Каждый день'] || []).concat(groups['Дети'] || []).filter(r => r.best);
   if ($('lageSum')) $('lageSum').textContent = best.length ? `${best.filter(r => r.best.m <= 500).length} из ${best.length} рядом` : '';
+}
+
+// показать выбранный тип из «Что рядом» на карте: ближайший + остальные до 1 км (макс. 15)
+function lageClear() { S.lageSel = null; map?.getSource('lage-hl')?.setData(fc([])); document.querySelectorAll('.lgr.on').forEach(x => x.classList.remove('on')); }
+function lageShow(i, el) {
+  const r = S.lageRows?.[i], b = S.lageB; if (!r?.best || !b) return;
+  if (S.lageSel === i) { lageClear(); return; }
+  lageClear(); S.lageSel = i; el.classList.add('on');
+  const pts = r.near.filter((x, k) => k === 0 || x.m <= 1000).slice(0, 15);
+  const feats = pts.map((x, k) => ({ type: 'Feature', properties: { name: x.p.name || '', t: r.label, dist: fmtM(x.m), best: k === 0 }, geometry: { type: 'Point', coordinates: [x.p.lng, x.p.lat] } }));
+  feats.unshift({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [[b.lng, b.lat], [pts[0].p.lng, pts[0].p.lat]] } });
+  map.getSource('lage-hl').setData(fc(feats));
+  const bb = new mapboxgl.LngLatBounds([b.lng, b.lat], [b.lng, b.lat]); pts.forEach(x => bb.extend([x.p.lng, x.p.lat]));
+  map.fitBounds(bb, { padding: Object.fromEntries(Object.entries(detailPad()).map(([k, v]) => [k, v + 60])), maxZoom: 16.5, duration: 700 });
+  toast(`${r.label}: ближайший — ${fmtM(pts[0].m)}${pts.length > 1 ? `, всего ${pts.length} в радиусе 1 км` : ''}. Нажми ещё раз, чтобы убрать.`, 2600);
+}
+// «Про район»: статистика района (криминал, гражданство)
+function loadArea(b) {
+  const box = $('areaBox'); if (!box) return;
+  const d = S.dsoc?.d?.[b.district];
+  if (!d) { box.innerHTML = '<span class="rmeta">нет данных по району</span>'; return; }
+  const tr = Math.round((d.crime24 / d.crime23 - 1) * 100), rk = S.dsoc.rank[b.district];
+  box.innerHTML = `<div class="lgg"><div class="lgh">${b.district}-й район · ${esc(d.name)} · ${d.pop.toLocaleString('ru')} жителей</div>
+    <div class="lgr ${rk <= 5 ? 'far' : rk >= 17 ? 'good' : ''}"><span class="lge">🛡️</span><span class="lgt">Заявления в полицию 2024<small>весь район, по месту преступления · ${tr > 0 ? '▲' : '▼'} ${Math.abs(tr)} % к 2023 (${d.crime23.toLocaleString('ru')})</small></span>
+      <span class="lgd"><b>${d.crime24.toLocaleString('ru')}</b><small>место ${rk} из 23 (1 = больше всего) · ${d.crime_per1000} на 1 000 жит.</small></span></div>
+    <div class="lgr"><span class="lge">🌍</span><span class="lgt">Иностранное гражданство<small>натурализованные считаются австрийцами</small></span><span class="lgd"><b>${String(d.foreign_pct).replace('.', ',')} %</b><small>жителей, 1.1.2025</small></span></div>
+    ${d.top.map(t => `<div class="lgr"><span class="lge"></span><span class="lgt">${esc(t.c)}</span><span class="lgd"><b>${String(t.pct).replace('.', ',')} %</b><small>${t.n.toLocaleString('ru')} чел.</small></span></div>`).join('')}</div>
+    <div class="src">Криминал: Polizeiliche Kriminalstatistik 2024, LPD Wien. Гражданство: Stadt Wien / Statistik Austria, 1.1.2025. Это данные по всему району — у конкретного дома может быть иначе. На карте: «Слои → Районы: статистика».</div>`;
+  if ($('areaSum')) $('areaSum').textContent = `криминал: ${rk}-е из 23`;
 }
 
 /* ---------- солнце: стороны света, восход и закат у выбранного дома ---------- */
