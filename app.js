@@ -109,7 +109,7 @@ map.on('style.load', async () => {
   const loadImg = (name, url) => new Promise(res => map.loadImage(url, (err, img) => { if (!err && !map.hasImage(name)) map.addImage(name, img, { pixelRatio: 2 }); res(); }));
   const [bez, , ust, planned] = await Promise.all([
     fetch('data/wien_bezirke.json').then(r => r.json()),
-    fetch('data/district_social.json').then(r => r.json()).then(d => { S.dsoc = d; }).catch(() => {}),
+    fetch('data/district_social.json').then(r => r.json()).then(d => { S.dsoc = d; d.rank = Object.fromEntries(Object.entries(d.d).sort((a, b) => b[1].crime24 - a[1].crime24).map(([k], i) => [k, i + 1])); }).catch(() => {}),
     fetch('data/ubahn_stations.json').then(r => r.json()),
     fetch('data/planned.json').then(r => r.json()),
     loadImg('badge-u', 'img/ubahn.png'),
@@ -1299,25 +1299,29 @@ function pushOsm() {
 
 /* ---------- статистика районов: криминал (PKS 2024) и гражданство (1.1.2025) ---------- */
 const CRIME_C = ['#1a9850', '#91cf60', '#d9ef8b', '#fee08b', '#fc8d59', '#d73027'];
+const crimeAbsCol = v => v < 4000 ? CRIME_C[0] : v < 6000 ? CRIME_C[1] : v < 9000 ? CRIME_C[2] : v < 11000 ? CRIME_C[3] : v < 15000 ? CRIME_C[4] : CRIME_C[5];
+const kTxt = v => (v / 1000).toFixed(1).replace('.', ',') + ' тыс.';
 const crimeCol = v => v < 65 ? CRIME_C[0] : v < 80 ? CRIME_C[1] : v < 100 ? CRIME_C[2] : v < 120 ? CRIME_C[3] : v < 160 ? CRIME_C[4] : CRIME_C[5];
 const forCol = v => v < 30 ? '#c6dbef' : v < 35 ? '#9ecae1' : v < 40 ? '#6baed6' : v < 45 ? '#3182bd' : '#08519c';
 function dsocPopup(n) {
   const d = S.dsoc?.d?.[n]; if (!d) return '';
   return `<b>${n}. ${esc(d.name)}</b><br><small>${d.pop.toLocaleString('ru')} жителей (1.1.2025)</small>
-    <br><br><b>Заявления в полицию 2024:</b> ${d.crime24.toLocaleString('ru')} (2023: ${d.crime23.toLocaleString('ru')})<br>на 1 000 жителей: <b>${d.crime_per1000}</b>
+    <br><br><b>Заявления в полицию 2024: ${d.crime24.toLocaleString('ru')}</b> — ${S.dsoc.rank[n]}-е место из 23 (1 = больше всего)<br>2023: ${d.crime23.toLocaleString('ru')} · на 1 000 жителей: ${d.crime_per1000}
     <br><br><b>Иностранное гражданство:</b> ${d.foreign_pct} %<br>${d.top.map(t => `${esc(t.c)} — ${t.pct.toString().replace('.', ',')} % (${t.n.toLocaleString('ru')})`).join('<br>')}
     <br><br><small>${esc(S.dsoc.meta.note)}</small>`;
 }
 function pushDstat() {
   const mode = $('dstatMode')?.value || ''; vis(['dstat-fill', 'dstat-label'], !!mode && !!S.dsoc);
   $('dstatLegend').innerHTML = !mode ? '' : mode === 'crime'
+    ? `<div class="dleg">${['< 4 тыс.', '4–6', '6–9', '9–11', '11–15', '15 тыс.+'].map((t, i) => `<span><i style="background:${CRIME_C[i]}"></i>${t}</span>`).join('')}</div><small>всего заявлений в полицию за 2024 по району. Большие районы (21-й, 22-й, 10-й) набирают много просто из-за размера — для сравнения есть режим «на 1 000 жителей».</small>`
+    : mode === 'crime_rel'
     ? `<div class="dleg">${['< 65', '65–80', '80–100', '100–120', '120–160', '160+'].map((t, i) => `<span><i style="background:${CRIME_C[i]}"></i>${t}</span>`).join('')}</div><small>заявлений на 1 000 жителей, 2024. Центр (1-й) и торговые улицы (6-й, 7-й) завышены туристами и покупателями: считается по месту преступления.</small>`
     : `<div class="dleg">${[['< 30', '#c6dbef'], ['30–35', '#9ecae1'], ['35–40', '#6baed6'], ['40–45', '#3182bd'], ['45+', '#08519c']].map(([t, c]) => `<span><i style="background:${c}"></i>${t} %</span>`).join('')}</div><small>доля жителей без австрийского гражданства (1.1.2025); на карте — 2 самых больших иностранных гражданства района. Натурализованные считаются австрийцами.</small>`;
   if (!mode || !S.dsoc || !map.getLayer('dstat-fill')) return;
   const D = S.dsoc.d, col = ['match', ['get', 'district']], lab = ['match', ['get', 'district']];
   for (const [k, d] of Object.entries(D)) {
-    col.push(+k, mode === 'crime' ? crimeCol(d.crime_per1000) : forCol(d.foreign_pct));
-    lab.push(+k, mode === 'crime' ? `${d.crime_per1000}` : `${d.foreign_pct} %\n${d.top.slice(0, 2).map(t => t.c).join(', ')}`);
+    col.push(+k, mode === 'crime' ? crimeAbsCol(d.crime24) : mode === 'crime_rel' ? crimeCol(d.crime_per1000) : forCol(d.foreign_pct));
+    lab.push(+k, mode === 'crime' ? kTxt(d.crime24) : mode === 'crime_rel' ? `${d.crime_per1000}` : `${d.foreign_pct} %\n${d.top.slice(0, 2).map(t => t.c).join(', ')}`);
   }
   col.push('#555'); lab.push('');
   map.setPaintProperty('dstat-fill', 'fill-color', col); map.setLayoutProperty('dstat-label', 'text-field', lab);
@@ -1538,7 +1542,7 @@ async function loadLage(b) {
     return `<div class="lgr ${cls}"><span class="lge">${r.e}</span><span class="lgt">${esc(r.label)}${r.best ? `<small>${esc(r.best.p.name || '')}</small>` : ''}</span>
       <span class="lgd">${r.best ? `<b>${fmtM(r.best.m)}</b><small>${walk(r.best.m)} пешком · ${r.n5} до 500 м · ${r.n10} до 1 км</small>` : '—'}</span></div>`; }).join('')}</div>`).join('')
     + (() => { const d = S.dsoc?.d?.[b.district]; return !d ? '' : `<div class="lgg"><div class="lgh">Район (${b.district}-й, статистика)</div>
-      <div class="lgr"><span class="lge">🛡️</span><span class="lgt">Заявления в полицию 2024<small>по месту преступления, весь район</small></span><span class="lgd"><b>${d.crime_per1000}</b><small>на 1 000 жит. · ${d.crime24.toLocaleString('ru')} всего</small></span></div>
+      <div class="lgr"><span class="lge">🛡️</span><span class="lgt">Заявления в полицию 2024<small>весь район, по месту преступления · ${d.crime24 > d.crime23 ? '▲' : '▼'} ${Math.abs(Math.round((d.crime24 / d.crime23 - 1) * 100))} % к 2023</small></span><span class="lgd"><b>${d.crime24.toLocaleString('ru')}</b><small>всего · ${d.crime_per1000} на 1 000 жит. · место ${S.dsoc.rank[b.district]} из 23</small></span></div>
       <div class="lgr"><span class="lge">🌍</span><span class="lgt">Иностранное гражданство<small>${d.top.slice(0, 3).map(t => `${esc(t.c)} ${String(t.pct).replace('.', ',')} %`).join(' · ')}</small></span><span class="lgd"><b>${String(d.foreign_pct).replace('.', ',')} %</b><small>жителей, 1.1.2025</small></span></div></div>`; })()
     + '<div class="src">Расстояние по прямой, пешком ≈ 80 м/мин. Школы, сады, площадки, спорт, бассейны, больницы, врачи, зоны для собак — открытые данные Stadt Wien (data.wien.gv.at, CC BY 4.0); магазины и заправки — OpenStreetMap.</div>';
   const best = (groups['Каждый день'] || []).concat(groups['Дети'] || []).filter(r => r.best);
