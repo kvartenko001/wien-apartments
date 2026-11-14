@@ -1269,8 +1269,8 @@ function pushHeat() {
 async function loadHeat(b) {
   const box = $('heatBox'); if (!box) return;
   const vals = await Promise.all(HEAT.scenes.map(async sc => {
-    try { // среднее по 5 точкам (дом и ±40 м) — снимок 30 м/пикс, тепловой канал ~100 м
-      const d = 0.00045, pts = [[0, 0], [d, 0], [-d, 0], [0, d * 0.67], [0, -d * 0.67]];
+    try { // среднее по 9 точкам (дом и до ±70 м) — снимок 30 м/пикс, тепловой канал ~100 м
+      const d = 0.00045, pts = [[0, 0], [d, 0], [-d, 0], [0, d * 0.67], [0, -d * 0.67], [2 * d, 0], [-2 * d, 0], [0, 1.3 * d], [0, -1.3 * d]];
       const r = await Promise.all(pts.map(([dx, dy]) => fetch(`${HEAT.api}/item/point/${(b.lng + dx).toFixed(5)},${(b.lat + dy).toFixed(5)}?collection=landsat-c2-l2&item=${sc.id}&assets=lwir11`).then(x => x.json()).catch(() => null)));
       const v = r.map(q => q?.values?.[0]).filter(x => x > 1000);
       if (!v.length) return null;
@@ -1280,7 +1280,7 @@ async function loadHeat(b) {
   }));
   if (!$('heatBox')) return;
   const ok = vals.filter(Boolean);
-  if (!ok.length) { box.innerHTML = '<span class="rmeta">Снимки сейчас не отвечают, попробуй позже.</span>'; return; }
+  if (!ok.length) { box.innerHTML = '<span class="rmeta">Для этой точки значения нет: на снимках здесь вода или маска облаков — либо сервер снимков не ответил. Включи «Карту жары» в слоях и посмотри цвет вокруг.</span>'; return; }
   const avg = ok.reduce((a, x) => a + x.dt, 0) / ok.length;
   const lvl = avg <= -3 ? ['cool', 'прохладно — много зелени или воды рядом'] : avg <= -1 ? ['cool', 'прохладнее среднего по Вене'] : avg < 1 ? ['', 'как в среднем по Вене']
     : avg < 3 ? ['hot', 'жарче среднего: много асфальта и крыш'] : ['vhot', 'очень жарко: «остров тепла»'];
