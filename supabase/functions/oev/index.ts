@@ -126,7 +126,7 @@ async function compute(lng: number, lat: number) {
   // разнообразие: разные линии в 500 м пешком, вес по виду
   const near = new Map<string, string>();
   for (const r of rows) if (r.dist <= 500) for (const l of r.lines) if (l.perH >= 1) near.set(l.num, l.kind);
-  const W: Record<string, number> = { U: 3, T: 1.5, S: 1.5, R: 1.5, B: 1.5, Bus: 1 };   // v2: S-Bahn = трамвай (в Вене S-Bahn чаще раз в 15 мин, частота уже учтена в классе ÖROK)
+  const W: Record<string, number> = { U: 3, S: 2, R: 1.5, B: 1.5, T: 1.5, Bus: 1 };   // v3: S-Bahn между U-Bahn и трамваем; реальная частота — в классе ÖROK по расписанию
   const variety = [...near.values()].reduce((a, k) => a + (W[k] || 1), 0);
   const kinds = [...new Set(near.values())];
   const dC = Math.hypot((lng - CENTER[0]) * 74400, (lat - CENTER[1]) * 111200);              // м до Stephansplatz
@@ -136,7 +136,7 @@ async function compute(lng: number, lat: number) {
   const s2 = Math.min(100, variety / 8 * 100);
   const s3 = center == null ? null : Math.max(0, Math.min(100, (50 - center) / (50 - 15) * 100));
   const score = s3 == null ? (s1 * 0.5 + s2 * 0.15) / 0.65 : s1 * 0.5 / 0.9 + s2 * 0.15 / 0.9 + s3 * 0.25 / 0.9; // ÖV-часть без велосипеда (10 %)
-  return { v: 2, date, klasse: best?.kl || null, best, stops: rows.slice(0, 14), lines500: [...near.entries()].map(([num, kind]) => ({ num, kind })), kinds,
+  return { v: 3, date, klasse: best?.kl || null, best, stops: rows.slice(0, 14), lines500: [...near.entries()].map(([num, kind]) => ({ num, kind })), kinds,
     variety: Math.round(variety * 10) / 10, center, parts: { klasse: s1, variety: Math.round(s2), center: s3 == null ? null : Math.round(s3) }, score: Math.round(score * 10) / 10 };
 }
 
@@ -145,7 +145,7 @@ async function cached(lng: number, lat: number, maxAgeDays = 35) {
   const k = key4(lng, lat);
   const r = await fetch(`${URL_}/rest/v1/loc_oev?select=data,computed_at&k=eq.${encodeURIComponent(k)}`, { headers: H });
   const rows = r.ok ? await r.json() : [];
-  if (rows[0] && rows[0].data?.v === 2 && Date.now() - new Date(rows[0].computed_at).getTime() < maxAgeDays * 864e5) return rows[0].data;
+  if (rows[0] && rows[0].data?.v === 3 && Date.now() - new Date(rows[0].computed_at).getTime() < maxAgeDays * 864e5) return rows[0].data;
   const data = await compute(lng, lat);
   await fetch(`${URL_}/rest/v1/loc_oev?on_conflict=k`, { method: 'POST', headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify({ k, lng: +lng.toFixed(4), lat: +lat.toFixed(4), data, score: data.score, computed_at: new Date().toISOString() }) });

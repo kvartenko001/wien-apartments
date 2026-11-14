@@ -1384,6 +1384,7 @@ function oevWhy(o, bike, pct) {
   return `<b>ÖV-Güteklasse: ${o.klasse ? KL_TXT[o.klasse] : 'нет (слишком далеко или редко)'}</b> — официальная методика ÖROK: вид транспорта × интервал × пешее расстояние.
     ${best ? `<br>Лучшая остановка: ${esc(best.name)}, ${best.dist} м пешком (${best.walk || Math.round(best.dist / 80)} мин), отправление в среднем каждые ${String(best.iv).replace('.', ',')} мин в одну сторону` : ''}
     <br><br>Линии в 500 м пешком:<br>${lines}
+    ${(o.stops || []).some(st => (st.lines || []).some(l => l.kind === 'S')) ? '<br><br><span class="warnline">⚠ S-Bahn-Stammstrecke Praterstern – Hauptbahnhof закрыта на ремонт с 7.09.2026 до конца октября 2027 (затем Rennweg – Meidling до конца 2027). Расчёт по текущему расписанию — уже с закрытием; после ремонта S-Bahn здесь будет лучше.</span>' : ''}
     <br><br>До центра (Stephansplatz), будни, прибытие к 8:30: <b>${o.center != null ? o.center + ' мин' : '—'}</b> от двери до двери
     ${bike && bike.near_m != null ? `<br>Велосипед: дорожка/полоса в ${fmtM(bike.near_m)}, ${String(bike.km500 ?? 0).replace('.', ',')} км велоинфраструктуры в 500 м` : ''}
     <br><br><small>Части: класс ÖROK ${o.parts.klasse} · разнообразие ${o.parts.variety} · время до центра ${o.parts.center ?? '—'}${bike?.score != null ? ' · велосипед ' + Math.round(bike.score) : ''}. Веса: 50 / 15 / 25 / 10. Расписание: Wiener Linien/VOR, обычный вторник ${o.date.slice(6, 8)}.${o.date.slice(4, 6)}, 7–9 и 12–14 ч.${pct?.n ? ` Эталон: ${pct.n} адресов рынка.` : ''}</small>`;
