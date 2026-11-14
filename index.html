@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.css" rel="stylesheet">
-<link href="style.css?v=1794686742" rel="stylesheet">
+<link href="style.css?v=1794687103" rel="stylesheet">
 </head>
 <body class="theme-a">
 
@@ -116,12 +116,25 @@
     <label class="check"><input type="checkbox" id="n_flug"> Самолёты</label>
     <img id="noiseLegend" class="noise-legend" alt="Легенда: уровни шума в дБ" hidden>
     <div class="src">Стратегические шумовые карты 2022 · <a href="https://www.laerminfo.at" target="_blank" rel="noopener">Datenquelle: www.laerminfo.at</a> · CC BY 4.0. «Сутки» — Lden, «ночь» — Lnight: у вокзалов и Gürtel смотри ночь.</div>
-    <div class="ftitle lrow" style="margin-top:16px">Районы: статистика
-      <select id="dstatMode" class="mini"><option value="">выкл.</option><option value="crime">криминал: всего по району</option><option value="crime_rel">криминал на 1 000 жит.</option><option value="foreign">иностр. гражданство</option></select></div>
+    <div class="ftitle" style="margin-top:16px">Районы: статистика</div>
+    <div class="lhint">Закрасить 23 района Вены. Клик по району на карте — подробности.</div>
+    <select id="dstatMode" hidden><option value="">выкл.</option><option value="crime">криминал всего</option><option value="crime_rel">криминал на 1 000</option><option value="foreign">гражданство</option></select>
+    <div class="optgrid" data-sel="dstatMode">
+      <button data-v=""><i>✕</i><b>Выключено</b></button>
+      <button data-v="crime"><i>🛡️</i><b>Криминал</b><small>всего заявлений за 2024</small></button>
+      <button data-v="crime_rel"><i>⚖️</i><b>Криминал на 1 000</b><small>с учётом числа жителей</small></button>
+      <button data-v="foreign"><i>🌍</i><b>Гражданство</b><small>доля иностранцев, топ стран</small></button>
+    </div>
     <div id="dstatLegend" class="heatlegend"></div>
-    <div class="ftitle lrow" style="margin-top:16px">Жара летом
-      <select id="heatY" class="mini"><option value="2026">9.08.2026</option><option value="2025">14.08.2025</option></select></div>
-    <label class="check"><input type="checkbox" id="lHeat"> <span class="sw sw-heat"></span> Карта жары: температура поверхности в жаркий день</label>
+    <div class="ftitle" style="margin-top:16px">Жара летом</div>
+    <div class="lhint">Насколько нагревается земля и крыши в самый жаркий день — по снимку со спутника.</div>
+    <select id="heatY" hidden><option value="2026">9.08.2026</option><option value="2025">14.08.2025</option></select>
+    <input type="checkbox" id="lHeat" hidden>
+    <div class="optgrid" data-sel="heatPick">
+      <button data-v=""><i>✕</i><b>Выключено</b></button>
+      <button data-v="2026"><i>🔥</i><b>Лето 2026</b><small>снимок 9 августа</small></button>
+      <button data-v="2025"><i>🔥</i><b>Лето 2025</b><small>снимок 14 августа</small></button>
+    </div>
     <div class="heatlegend" id="heatLegend" hidden><div class="hbar"></div><div class="hlab"><span>29 °C</span><span>37 °C</span><span>45 °C</span></div>
       <small>Синее — парки, лес, вода, тень деревьев; красное — асфальт, крыши, промзоны. Спутник Landsat, ~11:40, разрешение ~30–100 м.</small></div>
     <div class="ftitle" style="margin-top:16px">Рядом с домом</div>
@@ -282,6 +295,6 @@
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="config.js?v=1794563009"></script>
-<script src="app.js?v=1794686742"></script>
+<script src="app.js?v=1794687103"></script>
 </body>
 </html>

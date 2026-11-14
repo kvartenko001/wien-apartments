@@ -1929,6 +1929,7 @@ const LAYER_GROUPS = {
 };
 function vis(ids, on) { ids.forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')); }
 function syncLayerToggles() {
+  syncOptGrids();
   if (!map.getLayer('fp-fill')) return;
   for (const [cb, ids] of Object.entries(LAYER_GROUPS)) vis(ids, $(cb).checked);
   // станции: значки или точки, названия отдельно
@@ -1961,6 +1962,17 @@ try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of O
 [...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun', 'lNewTram', 'lBike', 'lHeat', ...MP.map(d => d.id)].forEach(id => $(id).onchange = syncLayerToggles);
 $('noiseDay').onchange = syncLayerToggles;
 $('dstatMode').onchange = () => { localSet('dstatMode', $('dstatMode').value); pushDstat(); }; $('dstatMode').value = localGet('dstatMode', '');
+// крупные кнопки-варианты вместо мелких выпадающих списков
+function syncOptGrids() {
+  document.querySelectorAll('.optgrid').forEach(g => { const k = g.dataset.sel;
+    const v = k === 'heatPick' ? ($('lHeat').checked ? $('heatY').value : '') : $(k).value;
+    g.querySelectorAll('button').forEach(btn => btn.classList.toggle('on', btn.dataset.v === v)); });
+}
+document.querySelectorAll('.optgrid').forEach(g => g.onclick = e => { const btn = e.target.closest('button'); if (!btn) return; const v = btn.dataset.v, k = g.dataset.sel;
+  if (k === 'heatPick') { if (v) $('heatY').value = v; $('lHeat').checked = !!v; $('lHeat').onchange?.(); $('heatY').onchange?.(); }
+  else { $(k).value = v; $(k).onchange(); }
+  syncOptGrids(); });
+setTimeout(syncOptGrids, 0);
 $('heatY').onchange = () => { localSet('heatY', $('heatY').value); syncLayerToggles(); }; $('heatY').value = localGet('heatY', '2026');
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 
