@@ -1,5 +1,9 @@
--- 14.11.2026 · Слои «Что рядом» (Lagecheck): map_points / map_lines.
--- Применено: map_points, map_lines, private.ogd_load() (школы 819, детсады 1680, зоны для собак 440).
--- Ожидает подтверждения (запрос в Supabase не был подтверждён): private.fuel_load() (заправки, OSM/Overpass),
---   private.ogd_fetch + private.ogd_load2() (площадки, спорт, бассейны, больницы, врачи, прохладные зоны), cron 'ogd-monthly'.
--- Полный текст функций — см. историю миграций проекта (map_points_ogd, fuel_layer, ogd_lagecheck_layers).
+-- 14.11.2026 · Слои «Что рядом» (Lagecheck). Всё применено.
+-- Таблицы: public.map_points (layer, sub, name, props, lng, lat), public.map_lines; RLS: чтение только участникам.
+-- Загрузчики:
+--   private.ogd_load()   — SCHULEOGD (819: 602 гос / 217 частн), KINDERGARTENOGD (1 680: 392 город / 1 288 частн), HUNDEZONEOGD (440)
+--   private.ogd_load2()  — SPIELPLATZPUNKTOGD (774), SPORTSTAETTENOGD (1 543), SCHWIMMBADOGD (49), KRANKENHAUSOGD (28), COOLEZONEOGD (40)
+--   private.doc_load()   — ARZTOGD постранично по 2 500 (сервер города режет большие ответы: ENHANCE_YOUR_CALM): 7 644 врача
+--   private.osm_load2()  — Overpass с запасными серверами: заправки (242), фитнес-центры (285)
+-- cron 'lagecheck-monthly' — 2-го числа каждого месяца, 03:23 UTC.
+-- Велодорожки (RADWEGEOGD, ~15 000 линий) грузятся прямо в браузере с data.wien.gv.at (CORS разрешён).
