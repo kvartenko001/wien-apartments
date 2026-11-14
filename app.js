@@ -226,6 +226,15 @@ map.on('style.load', async () => {
   map.on('click', 'mk-dot', e => mkPopup(+e.features[0].properties.id, e.lngLat));
   for (const id of ['mk-dot', 'osm-dot']) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
 
+  // ЖАРА: температура поверхности в жаркий летний день (Landsat, Microsoft Planetary Computer)
+  for (const sc of HEAT.scenes) {
+    map.addSource('heat-' + sc.y, { type: 'raster', tileSize: 256, minzoom: 9, maxzoom: 14, attribution: 'Landsat: USGS/NASA via Microsoft Planetary Computer',
+      tiles: [`${HEAT.api}/item/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?collection=landsat-c2-l2&item=${sc.id}&assets=lwir11&rescale=${HEAT.lo},${HEAT.hi}&colormap_name=rdylbu_r&nodata=0`],
+      bounds: [16.15, 48.09, 16.6, 48.34] });
+    map.addLayer({ id: 'heat-' + sc.y, type: 'raster', source: 'heat-' + sc.y, slot: 'middle', layout: { visibility: 'none' },
+      paint: { 'raster-opacity': 0.62, 'raster-emissive-strength': 1, 'raster-resampling': 'linear', 'raster-fade-duration': 150 } });
+  }
+
   // новые и будущие трамваи
   map.addSource('nt', { type: 'geojson', data: fc([]) });
   map.addLayer({ id: 'nt-glow', type: 'line', source: 'nt', slot: 'middle', filter: ['==', ['get', 'st'], 'open'], layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
@@ -547,6 +556,7 @@ function renderDetail(id) {
     <div class="lhead2"><b>Объявления</b><span class="rmeta">${ls.length ? ls.length + ' · листай →' : 'сейчас нет'}</span></div>
     <div class="lscroll">${cards || '<p class="hint">Сейчас в этом доме ничего не сдаётся. Сборщик проверяет каждое утро.</p>'}</div>
     ${section('lage', 'Что рядом', '<div id="lageBox"><span class="rmeta">считаю…</span></div>', '<span id="lageSum"></span>')}
+    ${section('heat', 'Жара летом', '<div id="heatBox"><span class="rmeta">считаю по спутнику…</span></div>', '<span id="heatSum"></span>')}
     ${section('noise', 'Шум у дома', '<div id="noiseBox"><span class="rmeta">считаю…</span></div>', '<span id="noiseSum"></span>')}
     ${section('route', 'Дорога', `<div class="rwhen">${esc(routeWhenLabel())}</div>
       <div id="routeList"></div>
@@ -561,6 +571,7 @@ function renderDetail(id) {
   loadRoutes(b);
   loadNoise(b);
   loadLage(b);
+  loadHeat(b);
 }
 function section(k, title, body, sum) {
   const open = localGet('sec_' + k, k === 'route' ? '0' : '1') === '1';
@@ -718,7 +729,7 @@ function drawCar(c, b, d) {
 }
 function clearRoute() { S.routeOpen = null; map.getSource('route')?.setData(fc([])); focusRoute(false); }
 /* режим маршрута: гасим все линии транспорта, станции, точки «рядом с домом» и объявления — виден только наш путь */
-const FOCUS_RX = /^(tx-|stn-|pl-|osm-|mk-|sun-|dev-|mp-|bike-|nt-|tp-)/;
+const FOCUS_RX = /^(tx-|stn-|pl-|osm-|mk-|sun-|dev-|mp-|bike-|nt-|tp-|heat-)/;
 function focusRoute(on) {
   if (!map.getStyle()) return;
   if (on) {
@@ -1245,6 +1256,41 @@ function pushOsm() {
   vis(['osm-dot', 'osm-label'], any);
 }
 
+/* ---------- жара летом: температура поверхности по снимкам Landsat ---------- */
+const HEAT = { api: 'https://planetarycomputer.microsoft.com/api/data/v1', k: 0.00341802, b: 149 - 273.15, lo: 44764, hi: 49478,
+  scenes: [ { y: '2026', id: 'LC08_L2SP_190026_20260809_02_T1', date: '9 августа 2026, ~11:40', med: 47397 },
+            { y: '2025', id: 'LC09_L2SP_190026_20250814_02_T1', date: '14 августа 2025, ~11:45', med: 47260 } ] };
+const heatC = dn => dn * HEAT.k + HEAT.b;
+function pushHeat() {
+  const on = $('lHeat').checked, y = $('heatY').value;
+  for (const sc of HEAT.scenes) vis(['heat-' + sc.y], on && sc.y === y);
+  $('heatLegend').hidden = !on;
+}
+async function loadHeat(b) {
+  const box = $('heatBox'); if (!box) return;
+  const vals = await Promise.all(HEAT.scenes.map(async sc => {
+    try { // среднее по 5 точкам (дом и ±40 м) — снимок 30 м/пикс, тепловой канал ~100 м
+      const d = 0.00045, pts = [[0, 0], [d, 0], [-d, 0], [0, d * 0.67], [0, -d * 0.67]];
+      const r = await Promise.all(pts.map(([dx, dy]) => fetch(`${HEAT.api}/item/point/${(b.lng + dx).toFixed(5)},${(b.lat + dy).toFixed(5)}?collection=landsat-c2-l2&item=${sc.id}&assets=lwir11`).then(x => x.json()).catch(() => null)));
+      const v = r.map(q => q?.values?.[0]).filter(x => x > 1000);
+      if (!v.length) return null;
+      const t = heatC(v.reduce((a, x) => a + x, 0) / v.length);
+      return { ...sc, t, dt: t - heatC(sc.med) };
+    } catch { return null; }
+  }));
+  if (!$('heatBox')) return;
+  const ok = vals.filter(Boolean);
+  if (!ok.length) { box.innerHTML = '<span class="rmeta">Снимки сейчас не отвечают, попробуй позже.</span>'; return; }
+  const avg = ok.reduce((a, x) => a + x.dt, 0) / ok.length;
+  const lvl = avg <= -3 ? ['cool', 'прохладно — много зелени или воды рядом'] : avg <= -1 ? ['cool', 'прохладнее среднего по Вене'] : avg < 1 ? ['', 'как в среднем по Вене']
+    : avg < 3 ? ['hot', 'жарче среднего: много асфальта и крыш'] : ['vhot', 'очень жарко: «остров тепла»'];
+  const sgn = x => (x > 0 ? '+' : x < 0 ? '−' : '±') + Math.abs(x).toFixed(1).replace('.', ',');
+  box.innerHTML = `<div class="heatv ${lvl[0]}"><b>${sgn(avg)} °C</b><span>к средней поверхности Вены · ${lvl[1]}</span></div>
+    ${ok.map(x => `<div class="bl"><span>${x.date}<small>поверхность у дома · среднее по городу ${heatC(x.med).toFixed(1).replace('.', ',')} °C</small></span><b>${x.t.toFixed(1).replace('.', ',')} °C <em>${sgn(x.dt)}</em></b></div>`).join('')}
+    <div class="src">Это температура <b>поверхности</b> (крыши, асфальт, газоны) в жаркий солнечный день по спутнику Landsat, а не температура воздуха. Хорошо показывает «острова тепла»: асфальт и плотная застройка — красное, парки, деревья, вода — синее. Ночную жару снимки не показывают. Два независимых снимка: 2026 и 2025. Данные: USGS/NASA Landsat через Microsoft Planetary Computer.</div>`;
+  if ($('heatSum')) $('heatSum').textContent = sgn(avg) + ' °C';
+}
+
 /* ---------- Lagecheck: что рядом с домом (открытые данные Stadt Wien + OSM) ---------- */
 const MP = [ // id чекбокса, слой в map_points, подвиды, подпись, цвет, значок
   { id: 'lSchoolPub', layer: 'school', sub: ['public'], t: 'Школы — государственные', c: '#60a5fa', e: '🏫', g: 'Дети' },
@@ -1714,7 +1760,7 @@ function syncLayerToggles() {
   map.setConfigProperty('basemap', 'showPointOfInterestLabels', $('lPoiLabels').checked);
   map.setConfigProperty('basemap', 'colorGreenspace', $('lGreen').checked ? GREEN_ON : THEMES[S.theme].colorGreenspace);
   vis(['mk-dot'], $('lMarket').checked); if ($('lMarket').checked) pushMarket();
-  pushOsm(); pushMp(); pushNewTram(); pushBike();
+  pushOsm(); pushMp(); pushNewTram(); pushBike(); pushHeat();
   vis(['sun-ring', 'sun-line', 'sun-label'], $('lSun').checked); if ($('lSun').checked) pushSun();
   const per = $('noiseNight').checked ? 'night' : 'day';
   for (const k of NOISE_KEYS) for (const p of ['day', 'night'])
@@ -1725,11 +1771,12 @@ function syncLayerToggles() {
     lg.src = `${NOISE_WMS}?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&sld_version=1.1.0&layer=2022_STRASSE_${per === 'day' ? '24H' : 'NACHT'}_ZONEN_OE`;
     lg.hidden = false;
   } else lg.hidden = true;
-  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun', 'lNewTram', 'lBike', ...MP.map(d => d.id)].map(k => [k, $(k).checked]))));
+  localSet('layers', JSON.stringify(Object.fromEntries([...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun', 'lNewTram', 'lBike', 'lHeat', ...MP.map(d => d.id)].map(k => [k, $(k).checked]))));
 }
 try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of Object.entries(saved)) if ($(k)) $(k).checked = v; } catch {}
-[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun', 'lNewTram', 'lBike', ...MP.map(d => d.id)].forEach(id => $(id).onchange = syncLayerToggles);
+[...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun', 'lNewTram', 'lBike', 'lHeat', ...MP.map(d => d.id)].forEach(id => $(id).onchange = syncLayerToggles);
 $('noiseDay').onchange = syncLayerToggles;
+$('heatY').onchange = () => { localSet('heatY', $('heatY').value); syncLayerToggles(); }; $('heatY').value = localGet('heatY', '2026');
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 
 /* ---------- расчёт ---------- */

@@ -396,3 +396,13 @@ dl.rows .sep{grid-column:1/-1;border-top:1px dashed var(--line);margin:4px 0}
 .lge{text-align:center}.lgt{display:flex;flex-direction:column}.lgt small,.lgd small{font-size:11px;color:var(--dim)}
 .lgd{text-align:right;display:flex;flex-direction:column}.lgd b{font-family:'JetBrains Mono',monospace;font-weight:600}
 .lgr.good .lgd b{color:#4ade80}.lgr.far .lgd b{color:#f87171}
+
+.sw-heat{background:linear-gradient(90deg,#4575b4,#ffffbf,#d73027)}
+.heatlegend{margin:4px 0 8px 26px}.heatlegend .hbar{height:8px;border-radius:4px;background:linear-gradient(90deg,#313695,#4575b4,#74add1,#abd9e9,#e0f3f8,#ffffbf,#fee090,#fdae61,#f46d43,#d73027,#a50026)}
+.heatlegend .hlab{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:2px}.heatlegend small{font-size:11px;color:var(--dim);line-height:1.4;display:block;margin-top:3px}
+select.mini{background:transparent;color:inherit;border:1px solid var(--line);border-radius:8px;font-size:11.5px;padding:1px 4px}
+.heatv{display:flex;align-items:baseline;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);margin:4px 0 6px}
+.heatv b{font-size:22px;font-family:'JetBrains Mono',monospace}.heatv span{font-size:12.5px;color:var(--dim)}
+.heatv.cool{background:rgba(59,130,246,.14)}.heatv.cool b{color:#60a5fa}
+.heatv.hot{background:rgba(249,115,22,.14)}.heatv.hot b{color:#fb923c}
+.heatv.vhot{background:rgba(239,68,68,.16)}.heatv.vhot b{color:#f87171}
