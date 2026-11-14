@@ -107,8 +107,9 @@ map.on('style.load', async () => {
   };
 
   const loadImg = (name, url) => new Promise(res => map.loadImage(url, (err, img) => { if (!err && !map.hasImage(name)) map.addImage(name, img, { pixelRatio: 2 }); res(); }));
-  const [bez, ust, planned] = await Promise.all([
+  const [bez, , ust, planned] = await Promise.all([
     fetch('data/wien_bezirke.json').then(r => r.json()),
+    fetch('data/district_social.json').then(r => r.json()).then(d => { S.dsoc = d; }).catch(() => {}),
     fetch('data/ubahn_stations.json').then(r => r.json()),
     fetch('data/planned.json').then(r => r.json()),
     loadImg('badge-u', 'img/ubahn.png'),
@@ -123,6 +124,13 @@ map.on('style.load', async () => {
     paint: { 'line-color': '#8b9199', 'line-opacity': 0.4, 'line-width': 1 } });
   map.addLayer({ id: 'district-line-sel', type: 'line', source: 'districts', slot: 'middle',
     paint: { 'line-color': AMBER, 'line-width': 2.2 }, filter: ['in', ['get', 'district'], ['literal', []]] });
+  // статистика районов: криминал / гражданство (слой-хороплет)
+  map.addLayer({ id: 'dstat-fill', type: 'fill', source: 'districts', slot: 'middle', layout: { visibility: 'none' }, paint: { 'fill-color': '#000', 'fill-opacity': 0.42 } });
+  map.addLayer({ id: 'dstat-label', type: 'symbol', source: 'districts', slot: 'top', maxzoom: 13.5, layout: { visibility: 'none', 'text-field': '', 'text-size': 12,
+      'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'], 'text-max-width': 9, 'text-offset': [0, 1.2] },
+    paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,.8)', 'text-halo-width': 1.4 } });
+  map.on('click', 'dstat-fill', e => { if (map.queryRenderedFeatures(e.point, { layers: ['b-fill', 'mk-dot', 'dev-dot', 'mp-dot'].filter(l => map.getLayer(l)) }).length) return;
+    const n = e.features[0].properties.district; new mapboxgl.Popup({ closeButton: false, className: 'mkpop', maxWidth: '300px' }).setLngLat(e.lngLat).setHTML(dsocPopup(n)).addTo(map); });
   map.addLayer({ id: 'district-label', type: 'symbol', source: 'districts', slot: 'top', maxzoom: 12.5,
     layout: { 'text-field': ['to-string', ['get', 'district']], 'text-size': 13, 'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'] },
     paint: { 'text-color': '#8b9199', 'text-halo-color': 'rgba(0,0,0,0.65)', 'text-halo-width': 1 } });
@@ -1288,6 +1296,32 @@ function pushOsm() {
   vis(['osm-dot', 'osm-label'], any);
 }
 
+/* ---------- статистика районов: криминал (PKS 2024) и гражданство (1.1.2025) ---------- */
+const CRIME_C = ['#1a9850', '#91cf60', '#d9ef8b', '#fee08b', '#fc8d59', '#d73027'];
+const crimeCol = v => v < 65 ? CRIME_C[0] : v < 80 ? CRIME_C[1] : v < 100 ? CRIME_C[2] : v < 120 ? CRIME_C[3] : v < 160 ? CRIME_C[4] : CRIME_C[5];
+const forCol = v => v < 30 ? '#c6dbef' : v < 35 ? '#9ecae1' : v < 40 ? '#6baed6' : v < 45 ? '#3182bd' : '#08519c';
+function dsocPopup(n) {
+  const d = S.dsoc?.d?.[n]; if (!d) return '';
+  return `<b>${n}. ${esc(d.name)}</b><br><small>${d.pop.toLocaleString('ru')} жителей (1.1.2025)</small>
+    <br><br><b>Заявления в полицию 2024:</b> ${d.crime24.toLocaleString('ru')} (2023: ${d.crime23.toLocaleString('ru')})<br>на 1 000 жителей: <b>${d.crime_per1000}</b>
+    <br><br><b>Иностранное гражданство:</b> ${d.foreign_pct} %<br>${d.top.map(t => `${esc(t.c)} — ${t.pct.toString().replace('.', ',')} % (${t.n.toLocaleString('ru')})`).join('<br>')}
+    <br><br><small>${esc(S.dsoc.meta.note)}</small>`;
+}
+function pushDstat() {
+  const mode = $('dstatMode')?.value || ''; vis(['dstat-fill', 'dstat-label'], !!mode && !!S.dsoc);
+  $('dstatLegend').innerHTML = !mode ? '' : mode === 'crime'
+    ? `<div class="dleg">${['< 65', '65–80', '80–100', '100–120', '120–160', '160+'].map((t, i) => `<span><i style="background:${CRIME_C[i]}"></i>${t}</span>`).join('')}</div><small>заявлений на 1 000 жителей, 2024. Центр (1-й) и торговые улицы (6-й, 7-й) завышены туристами и покупателями: считается по месту преступления.</small>`
+    : `<div class="dleg">${[['< 30', '#c6dbef'], ['30–35', '#9ecae1'], ['35–40', '#6baed6'], ['40–45', '#3182bd'], ['45+', '#08519c']].map(([t, c]) => `<span><i style="background:${c}"></i>${t} %</span>`).join('')}</div><small>доля жителей без австрийского гражданства (1.1.2025); на карте — 2 самых больших иностранных гражданства района. Натурализованные считаются австрийцами.</small>`;
+  if (!mode || !S.dsoc || !map.getLayer('dstat-fill')) return;
+  const D = S.dsoc.d, col = ['match', ['get', 'district']], lab = ['match', ['get', 'district']];
+  for (const [k, d] of Object.entries(D)) {
+    col.push(+k, mode === 'crime' ? crimeCol(d.crime_per1000) : forCol(d.foreign_pct));
+    lab.push(+k, mode === 'crime' ? `${d.crime_per1000}` : `${d.foreign_pct} %\n${d.top.slice(0, 2).map(t => t.c).join(', ')}`);
+  }
+  col.push('#555'); lab.push('');
+  map.setPaintProperty('dstat-fill', 'fill-color', col); map.setLayoutProperty('dstat-label', 'text-field', lab);
+}
+
 /* ---------- жара летом: температура поверхности по снимкам Landsat ---------- */
 const HEAT = { api: 'https://planetarycomputer.microsoft.com/api/data/v1', k: 0.00341802, b: 149 - 273.15, lo: 44764, hi: 49478,
   scenes: [ { y: '2026', id: 'LC08_L2SP_190026_20260809_02_T1', date: '9 августа 2026, ~11:40', med: 47397 },
@@ -1327,7 +1361,7 @@ async function loadHeat(b) {
 /* ---------- оценка локации 0–100 (методика: docs/12-location-score.md) ---------- */
 const SC = [ // ключ, название, вес «общий», вес «пара без детей» = общий без «Дети»
   ['transit', 'Транспорт', 25], ['daily', 'Каждый день', 20], ['kids', 'Дети', 15], ['green', 'Зелень', 15],
-  ['sport', 'Спорт и больница', 5], ['quiet', 'Тишина', 10], ['climate', 'Климат летом', 10] ];
+  ['sport', 'Спорт и больница', 5], ['quiet', 'Тишина', 10], ['climate', 'Климат летом', 10], ['safety', 'Безопасность района', 5] ];
 const lin = (x, good, bad) => x == null ? null : Math.max(0, Math.min(100, 100 * (bad - x) / (bad - good)));
 const fm = o => o && o.m != null ? `${o.n ? esc(o.n) + ' · ' : ''}${fmtM(o.m * 1.25)} пешком` : 'нет рядом';
 async function loadScore(b) {
@@ -1345,7 +1379,8 @@ async function loadScore(b) {
   const heat = S.heat?.[b.id] ?? null;
   const bikeS = bike && bike.score != null && (bike.near_m != null) ? +bike.score : null;
   const transit = oev ? (bikeS != null ? 0.9 * oev.score + 0.1 * bikeS : oev.score) : data.prox.transit;
-  const v = { ...data.prox, transit, quiet: lin(lden, 50, 75), climate: lin(heat, -3, 4) };
+  const ds = S.dsoc?.d?.[b.district];
+  const v = { ...data.prox, transit, quiet: lin(lden, 50, 75), climate: lin(heat, -3, 4), safety: ds ? lin(ds.crime_per1000, 60, 160) : null };
   const r = data.raw, pct = { ...(data.ref?.pct || {}) }, nref = data.ref?.n || 0;
   if (oev) pct.transit = oevPct && oevPct.n >= 100 ? oevPct.pct : null;
   const prof = localGet('scoreProf', 'couple');
@@ -1361,6 +1396,7 @@ async function loadScore(b) {
     green: `Парк от 0,5 га: ${fm(r['green:park'])}<br>Большая зелень от 10 га: ${fm(r['green:big'])}`,
     sport: `Спортплощадка: ${fm(r['sport:outdoor'])}<br>Фитнес: ${fm(r['fit:*'])}<br>Бассейн: ${fm(r['pool:*'])}<br>Больница: ${fm(r['hosp:*'])}`,
     quiet: lden == null ? 'нет данных о шуме' : `самый громкий фасад ≈ ${lden} дБ днём (Lden); 50 дБ и тише = 100, 75 дБ = 0`,
+    safety: ds ? `${esc(ds.name)}: ${ds.crime24.toLocaleString('ru')} заявлений в полицию за 2024 = ${ds.crime_per1000} на 1 000 жителей (60 и меньше = 100, 160 и больше = 0). Только уровень района и по месту преступления — у дома может быть иначе.` : 'нет данных по району',
     climate: heat == null ? 'нет данных со спутника' : `поверхность ${heat > 0 ? '+' : '−'}${Math.abs(heat).toFixed(1).replace('.', ',')} °C к медиане Вены; −3 °C = 100, +4 °C = 0`,
   };
   const cls = x => x >= 75 ? 'g5' : x >= 55 ? 'g4' : x >= 40 ? 'g3' : x >= 25 ? 'g2' : 'g1';
@@ -1500,6 +1536,9 @@ async function loadLage(b) {
     const cls = !r.best ? '' : r.best.m <= 400 ? 'good' : r.best.m <= 900 ? '' : 'far';
     return `<div class="lgr ${cls}"><span class="lge">${r.e}</span><span class="lgt">${esc(r.label)}${r.best ? `<small>${esc(r.best.p.name || '')}</small>` : ''}</span>
       <span class="lgd">${r.best ? `<b>${fmtM(r.best.m)}</b><small>${walk(r.best.m)} пешком · ${r.n5} до 500 м · ${r.n10} до 1 км</small>` : '—'}</span></div>`; }).join('')}</div>`).join('')
+    + (() => { const d = S.dsoc?.d?.[b.district]; return !d ? '' : `<div class="lgg"><div class="lgh">Район (${b.district}-й, статистика)</div>
+      <div class="lgr"><span class="lge">🛡️</span><span class="lgt">Заявления в полицию 2024<small>по месту преступления, весь район</small></span><span class="lgd"><b>${d.crime_per1000}</b><small>на 1 000 жит. · ${d.crime24.toLocaleString('ru')} всего</small></span></div>
+      <div class="lgr"><span class="lge">🌍</span><span class="lgt">Иностранное гражданство<small>${d.top.slice(0, 3).map(t => `${esc(t.c)} ${String(t.pct).replace('.', ',')} %`).join(' · ')}</small></span><span class="lgd"><b>${String(d.foreign_pct).replace('.', ',')} %</b><small>жителей, 1.1.2025</small></span></div></div>`; })()
     + '<div class="src">Расстояние по прямой, пешком ≈ 80 м/мин. Школы, сады, площадки, спорт, бассейны, больницы, врачи, зоны для собак — открытые данные Stadt Wien (data.wien.gv.at, CC BY 4.0); магазины и заправки — OpenStreetMap.</div>';
   const best = (groups['Каждый день'] || []).concat(groups['Дети'] || []).filter(r => r.best);
   if ($('lageSum')) $('lageSum').textContent = best.length ? `${best.filter(r => r.best.m <= 500).length} из ${best.length} рядом` : '';
@@ -1859,7 +1898,7 @@ function syncLayerToggles() {
   map.setConfigProperty('basemap', 'showPointOfInterestLabels', $('lPoiLabels').checked);
   map.setConfigProperty('basemap', 'colorGreenspace', $('lGreen').checked ? GREEN_ON : THEMES[S.theme].colorGreenspace);
   vis(['mk-dot'], $('lMarket').checked); if ($('lMarket').checked) pushMarket();
-  pushOsm(); pushMp(); pushNewTram(); pushBike(); pushHeat();
+  pushOsm(); pushMp(); pushNewTram(); pushBike(); pushHeat(); pushDstat();
   vis(['sun-ring', 'sun-line', 'sun-label'], $('lSun').checked); if ($('lSun').checked) pushSun();
   const per = $('noiseNight').checked ? 'night' : 'day';
   for (const k of NOISE_KEYS) for (const p of ['day', 'night'])
@@ -1875,6 +1914,7 @@ function syncLayerToggles() {
 try { const saved = JSON.parse(localGet('layers', '{}')); for (const [k, v] of Object.entries(saved)) if ($(k)) $(k).checked = v; } catch {}
 [...Object.keys(LAYER_GROUPS), 'l3d', 'lPoiLabels', 'lGreen', 'n_strasse', 'n_schiene', 'n_industrie', 'n_flug', 'noiseNight', 'lStnIcons', 'lStnNames', 'lMarket', 'lShops', 'lPharm', 'lNight', 'lPost', 'lLocker', 'lSun', 'lNewTram', 'lBike', 'lHeat', ...MP.map(d => d.id)].forEach(id => $(id).onchange = syncLayerToggles);
 $('noiseDay').onchange = syncLayerToggles;
+$('dstatMode').onchange = () => { localSet('dstatMode', $('dstatMode').value); pushDstat(); }; $('dstatMode').value = localGet('dstatMode', '');
 $('heatY').onchange = () => { localSet('heatY', $('heatY').value); syncLayerToggles(); }; $('heatY').value = localGet('heatY', '2026');
 $('txAll').onclick = () => { const on = !['lMetro', 'lSbahn', 'lTram', 'lBus'].every(k => $(k).checked); ['lMetro', 'lSbahn', 'lTram', 'lBus'].forEach(k => $(k).checked = on); syncLayerToggles(); };
 

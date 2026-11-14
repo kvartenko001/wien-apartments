@@ -427,3 +427,6 @@ select.mini{background:transparent;color:inherit;border:1px solid var(--line);bo
 .bname .ci{margin-left:5px;font-size:12px}
 
 .warnline{color:#fbbf24}
+
+.dleg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--dim);margin-bottom:3px}.dleg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+#dstatLegend{margin-left:0}
