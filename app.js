@@ -433,11 +433,7 @@ async function load() {
   for (const r of rows) {
     (S.transit[r.mode] ||= fc([])).features.push({ type: 'Feature', properties: { ref: r.ref, colour: r.colour }, geometry: r.geom });
   }
-  if (!S.buildings.length) {
-    $('gateText').textContent = 'Вход выполнен, но доступа к базе нет. Напиши Claude — добавит твою почту в список.';
-    showGate(true, true);
-    return;
-  }
+  if (!S.buildings.length && !localGet('hello', '')) { localSet('hello', '1'); toast('Добро пожаловать! Твой список домов пока пуст: добавь дом кнопкой «＋ Добавить дом» или открой «Ленту» — там все объявления Вены.', 9000); }
   applyFilters();
   renderQueue();
   pushTransit();
@@ -558,7 +554,7 @@ function renderList() {
       ${b.research_status === 'queued' ? '<div class="queued">⏳ на разборе: Claude соберёт данные и объявления</div>' : ''}
       ${b.pass ? '' : `<div class="why">${b.why.join(' · ')}</div>`}
     </div>`;
-  }).join('') || `<p class="hint">${S.collF ? 'В этой подборке пока нет домов. Открой дом и нажми нужную папку в его карточке.' : 'Пусто. Ослабь фильтры.'}</p>`;
+  }).join('') || `<p class="hint">${S.collF ? 'В этой подборке пока нет домов. Открой дом и нажми нужную папку в его карточке.' : (S.buildings.length ? 'Пусто. Ослабь фильтры.' : 'Пока ни одного дома. Нажми «＋ Добавить дом» (название ЖК, адрес или клик по карте) или добавь дом из «Ленты» кнопкой «＋ Отслеживать».')}</p>`;
   $('list').onclick = e => { const c = e.target.closest('.bcard'); if (c) select(c.dataset.id); };
 }
 
