@@ -51,6 +51,9 @@ const $ = id => document.getElementById(id);
 const eur = n => n == null ? '—' : Math.round(n).toLocaleString('ru-RU').replace(/ /g, ' ') + ' €';
 function localGet(k, d) { try { return localStorage.getItem('wa_' + k) ?? d; } catch { return d; } }
 function localSet(k, v) { try { localStorage.setItem('wa_' + k, v); } catch {} }
+// требования (фильтры домов) — сохраняются, чтобы жили между заходами и устройствами
+try { const sf = JSON.parse(localGet('f', 'null')); if (sf) Object.assign(S.f, { ...sf, amen: new Set(sf.amen || []), districts: new Set(sf.districts || []), status: new Set(sf.status || []) }); } catch {}
+function saveF() { localSet('f', JSON.stringify({ ...S.f, amen: [...S.f.amen], districts: [...S.f.districts], status: [...S.f.status] })); }
 function toast(msg, ms = 2600) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, ms); }
 const fc = features => ({ type: 'FeatureCollection', features });
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -450,8 +453,10 @@ const STATUS = { idea: 'идея', watching: 'наблюдаем', contacted: '�
 
 function buildFilterUI() {
   $('fAmen').innerHTML = AMEN.map(([k, t]) => `<button class="chip${S.f.amen.has(k) ? ' on' : ''}" data-k="${k}">${t}</button>`).join('');
-  $('fDistricts').innerHTML = Array.from({ length: 23 }, (_, i) => i + 1).map(d => `<button class="chip" data-d="${d}">${d}</button>`).join('');
-  $('fStatus').innerHTML = Object.entries(STATUS).map(([k, t]) => `<button class="chip" data-s="${k}">${t}</button>`).join('');
+  $('fDistricts').innerHTML = Array.from({ length: 23 }, (_, i) => i + 1).map(d => `<button class="chip${S.f.districts.has(d) ? ' on' : ''}" data-d="${d}">${d}</button>`).join('');
+  $('fStatus').innerHTML = Object.entries(STATUS).map(([k, t]) => `<button class="chip${S.f.status.has(k) ? ' on' : ''}" data-s="${k}">${t}</button>`).join('');
+  if ($('fRooms')) $('fRooms').value = S.f.rooms; if ($('fArea')) $('fArea').value = S.f.area; if ($('fHideFail')) $('fHideFail').checked = !!S.f.hideFail;
+  seg('budgetBasis', S.f.basis, 'b');
   $('fAmen').onclick = e => toggleChip(e, 'k', S.f.amen);
   $('fDistricts').onclick = e => toggleChip(e, 'd', S.f.districts, Number);
   $('fStatus').onclick = e => toggleChip(e, 's', S.f.status);
@@ -492,6 +497,7 @@ function evaluate(b) {
   return { pass: why.length === 0, why, ls, fit };
 }
 function applyFilters() {
+  saveF();
   $('vBudget').textContent = eur(S.f.budget);
   for (const b of S.buildings) Object.assign(b, evaluate(b));
   renderList();
@@ -1999,24 +2005,153 @@ document.querySelectorAll('.presets').forEach(p => p.onclick = e => {
 });
 
 /* ---------- вход ---------- */
-function showGate(on, signedIn = false) {
+function showGate(on, signedIn = false, note = '') {
   $('gate').hidden = !on;
-  $('gateEmail').hidden = signedIn;
-  $('gateBtn').textContent = signedIn ? 'Выйти' : 'Прислать ссылку';
+  $('gateEmail').hidden = $('gatePass').hidden = signedIn;
+  $('gateBtn').textContent = signedIn ? 'Выйти' : 'Войти';
+  if (note) $('gateNote').textContent = note;
 }
 $('gateForm').onsubmit = async e => {
   e.preventDefault();
   if ($('gateEmail').hidden) { await sb.auth.signOut(); location.reload(); return; }
-  const email = $('gateEmail').value.trim();
-  $('gateBtn').disabled = true; $('gateNote').textContent = 'Отправляю…';
-  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+  const email = $('gateEmail').value.trim(), pass = $('gatePass').value;
+  $('gateBtn').disabled = true; $('gateNote').textContent = pass ? 'Вхожу…' : 'Отправляю ссылку…';
+  const { error } = pass ? await sb.auth.signInWithPassword({ email, password: pass })
+    : await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
   $('gateBtn').disabled = false;
-  $('gateNote').textContent = error ? 'Ошибка: ' + error.message : 'Готово. Открой письмо и нажми ссылку — вернёшься сюда уже внутри.';
+  $('gateNote').textContent = error ? (pass ? 'Не получилось войти: проверь почту и пароль.' : 'Ошибка: ' + error.message)
+    : pass ? '' : 'Готово. Открой письмо и нажми ссылку — вернёшься сюда уже внутри.';
 };
+
+// доступ: действует ли он ещё и не превышен ли лимит устройств (новый вход вытесняет самый старый)
+async function accessCheck() {
+  const { data, error } = await sb.rpc('session_check');
+  if (error) return true; // сеть/база недоступна — не выкидываем
+  if (!data?.ok) {
+    await sb.auth.signOut({ scope: 'local' });
+    showGate(true, false, data?.reason === 'no_access'
+      ? 'У этой почты нет доступа или его срок закончился. Напиши тому, кто выдал доступ.'
+      : `С этой почты вошли на другом устройстве. Можно не больше ${data?.max || 2} устройств одновременно — здесь сеанс закрыт.`);
+    return false;
+  }
+  S.me = data; $('adminBtn').hidden = data.role !== 'admin';
+  if (data.paid_until) { const days = Math.round((new Date(data.paid_until) - Date.now()) / 864e5); if (days <= 5) toast(`Доступ до ${new Date(data.paid_until).toLocaleDateString('ru')} — осталось ${Math.max(0, days)} дн.`, 5000); }
+  return true;
+}
+
+// настройки (фильтры, слои, лента) хранятся в базе под твоей почтой — одинаковые на всех устройствах
+const SYNC_SKIP = /^wa_(theme|_)/;
+const snapLS = () => { const o = {}; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('wa_') && !SYNC_SKIP.test(k)) { const v = localStorage.getItem(k); if (v.length < 20000) o[k] = v; } } } catch {} return o; };
+async function settingsDown() {
+  const { data } = await sb.from('user_settings').select('data,updated_at').maybeSingle();
+  const local = snapLS(), lastSync = localGet('_sync', '');
+  if (data && data.updated_at > lastSync && JSON.stringify(data.data) !== JSON.stringify(local)) {
+    if (!sessionStorage.getItem('wa_applied')) {
+      try { for (const k of Object.keys(local)) localStorage.removeItem(k); for (const [k, v] of Object.entries(data.data || {})) localStorage.setItem(k, v); } catch {}
+      localSet('_sync', data.updated_at); sessionStorage.setItem('wa_applied', '1'); location.reload(); return false;
+    }
+  }
+  S.lastSnap = JSON.stringify(local);
+  if (!data) await settingsUp(true);
+  return true;
+}
+async function settingsUp(force) {
+  const snap = snapLS(), js = JSON.stringify(snap);
+  if (!force && js === S.lastSnap) return;
+  const now = new Date().toISOString();
+  const { error } = await sb.from('user_settings').upsert({ email: (S.email || '').toLowerCase(), data: snap, updated_at: now });
+  if (!error) { S.lastSnap = js; localSet('_sync', now); }
+}
+
+/* ---------- админка ---------- */
+const fmtD = d => d ? new Date(d).toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const fmtAgo = d => { if (!d) return 'ещё не заходил'; const m = (Date.now() - new Date(d)) / 6e4; return m < 60 ? Math.round(m) + ' мин назад' : m < 1440 ? Math.round(m / 60) + ' ч назад' : Math.round(m / 1440) + ' дн назад'; };
+async function adminCall(body) {
+  const { data, error } = await sb.functions.invoke('admin', { body });
+  if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); }
+  return data;
+}
+function setsSummary(st) {
+  if (!st) return 'настроек ещё нет';
+  const p = k => { try { return JSON.parse(st[k] || 'null'); } catch { return null; } };
+  const f = p('wa_f'), parts = [];
+  if (f) parts.push(`дома: до ${f.budget} €, ${f.rooms}+ комн., от ${f.area} м²${f.districts?.length ? ', районы ' + f.districts.join(', ') : ''}`);
+  for (const k of Object.keys(st).filter(k => /^wa_ff/.test(k))) { const x = p(k); if (x) parts.push(`лента ${/buy/i.test(k) ? 'покупка' : 'аренда'}: ${x.pmin || 0}–${x.pmax || '∞'} €${x.area ? ', от ' + x.area + ' м²' : ''}${x.rooms ? ', ' + x.rooms + '+ комн.' : ''}${x.d?.length ? ', районы ' + x.d.join(', ') : ''}`); }
+  return parts.join('<br>') || 'по умолчанию';
+}
+async function openAdmin() {
+  $('adminModal').hidden = false; const box = $('adminList'); box.innerHTML = '<span class="rmeta">загружаю…</span>';
+  const { data, error } = await sb.rpc('admin_overview');
+  if (error) { box.textContent = 'Ошибка: ' + error.message; return; }
+  const today = new Date().toISOString().slice(0, 10);
+  box.innerHTML = data.map(m => {
+    const exp = m.paid_until && m.paid_until < today, st = !m.active ? ['выключен', 'off'] : exp ? ['срок истёк', 'off'] : ['активен', 'on'];
+    return `<div class="amem" data-e="${esc(m.email)}">
+      <div class="amh"><b>${esc(m.name || m.email)}</b>${m.name ? `<small>${esc(m.email)}</small>` : ''}<span class="ast ${st[1]}">${m.role === 'admin' ? 'админ' : st[0]}</span></div>
+      <div class="amm">база: <b>${m.ws === 'main' ? 'общая с тобой' : 'своя'}</b> · оплачено до <b>${m.paid_until ? fmtD(m.paid_until) : 'бессрочно'}</b> · устройств ${m.devices}/${m.max_devices} · ${m.has_login ? 'последний заход ' + fmtAgo(m.last_seen || m.last_sign_in) : 'ещё не входил'}${m.note ? ' · ' + esc(m.note) : ''}</div>
+      <details><summary>Дома: ${m.houses.length} · избранное в ленте: ${m.favorites}</summary><div class="amd">${m.houses.map(h => `${esc(h.name)}${h.district ? ` <small>(${h.district}-й)</small>` : ''}`).join('<br>') || '—'}</div></details>
+      <details><summary>Что ищет</summary><div class="amd">${setsSummary(m.settings)}${m.settings_at ? `<br><small>обновлено ${fmtAgo(m.settings_at)}</small>` : ''}</div></details>
+      ${m.role === 'admin' ? '' : `<div class="amb"><button data-a="ext30">+30 дней</button><button data-a="ext365">+1 год</button>
+        <button data-a="toggle">${m.active ? 'Выключить' : 'Включить'}</button><button data-a="pass">Новый пароль</button>
+        <select data-a="dev">${[1, 2, 3, 5].map(n => `<option${n === m.max_devices ? ' selected' : ''}>${n}</option>`).join('')}</select><small>устр.</small></div>`}
+    </div>`; }).join('');
+  S.adminData = data;
+}
+function accessMsg(email, pass, until) {
+  return `Привет! Доступ к Wien·квартиры готов.\n\nСайт: ${location.origin + location.pathname}\nПочта: ${email}\nПароль: ${pass}\n${until ? 'Доступ до: ' + fmtD(until) + '\n' : ''}\nМожно входить с ${$('agDev').value} устройств (например, компьютер и телефон).`;
+}
+function showPass(email, pass, until) {
+  $('agResult').hidden = false;
+  $('agResult').innerHTML = `<b>Пароль для ${esc(email)}:</b> <code>${esc(pass)}</code><br><small>Показывается один раз. Скопируй и отправь человеку:</small>
+    <textarea readonly rows="7">${esc(accessMsg(email, pass, until))}</textarea><button type="button" id="agCopy">Скопировать сообщение</button>`;
+  $('agCopy').onclick = () => { navigator.clipboard?.writeText($('agResult').querySelector('textarea').value); toast('Скопировано'); };
+}
+$('adminBtn').onclick = openAdmin;
+$('adminClose').onclick = () => $('adminModal').hidden = true;
+$('agForm').onsubmit = async e => {
+  e.preventDefault();
+  const email = $('agEmail').value.trim().toLowerCase(), until = $('agUntil').value || null;
+  $('agBtn').disabled = true;
+  try {
+    const r = await adminCall({ action: 'grant', email, name: $('agName').value.trim(), ws: $('agShared').checked ? 'main' : '', paid_until: until, max_devices: +$('agDev').value, note: $('agNote').value.trim() });
+    if (r.password) showPass(email, r.password, until);
+    else { $('agResult').hidden = false; $('agResult').innerHTML = `Доступ для ${esc(email)} обновлён. Логин у этого человека уже был — пароль прежний (можно выдать новый кнопкой «Новый пароль»).`; }
+    $('agForm').reset(); $('agUntil').value = defUntil(); openAdmin();
+  } catch (err) { toast('Не вышло: ' + err.message, 5000); }
+  $('agBtn').disabled = false;
+};
+const defUntil = () => new Date(Date.now() + 31 * 864e5).toISOString().slice(0, 10);
+$('agUntil').value = defUntil();
+$('adminList').onclick = async e => {
+  const btn = e.target.closest('button[data-a]'); if (!btn) return;
+  const email = btn.closest('.amem').dataset.e, m = S.adminData.find(x => x.email === email), a = btn.dataset.a;
+  const base = m.paid_until && m.paid_until > new Date().toISOString().slice(0, 10) ? new Date(m.paid_until) : new Date();
+  try {
+    if (a === 'ext30' || a === 'ext365') { base.setDate(base.getDate() + (a === 'ext30' ? 30 : 365)); await adminCall({ action: 'update', email, paid_until: base.toISOString().slice(0, 10), active: true }); toast('Продлено до ' + fmtD(base)); }
+    if (a === 'toggle') { if (m.active && !confirmBox(btn, 'Точно выключить?')) return; await adminCall({ action: 'update', email, active: !m.active }); }
+    if (a === 'pass') { if (!confirmBox(btn, 'Старый пароль перестанет работать. Ещё раз — подтвердить')) return; const r = await adminCall({ action: 'reset_password', email }); showPass(email, r.password, m.paid_until); $('adminModal').querySelector('.acard').scrollTop = 0; }
+    openAdmin();
+  } catch (err) { toast('Не вышло: ' + err.message, 5000); }
+};
+$('adminList').onchange = async e => {
+  const sel = e.target.closest('select[data-a="dev"]'); if (!sel) return;
+  try { await adminCall({ action: 'update', email: sel.closest('.amem').dataset.e, max_devices: +sel.value }); toast('Лимит устройств: ' + sel.value); } catch (err) { toast('Не вышло: ' + err.message, 5000); }
+};
+// подтверждение без системных диалогов: первый клик просит повторить
+function confirmBox(btn, msg) { if (btn.dataset.armed) { delete btn.dataset.armed; return true; } btn.dataset.armed = 1; const t = btn.textContent; btn.textContent = msg; setTimeout(() => { delete btn.dataset.armed; btn.textContent = t; }, 4000); return false; }
 
 buildFilterUI();
 sb.auth.onAuthStateChange((ev, session) => {
-  if (session) { showGate(false); load(); }
-  else showGate(true);
+  if (!session) { if (!S.kickedNote) showGate(true); return; }
+  S.email = session.user?.email || '';
+  if (S.started) return; S.started = true;
+  setTimeout(async () => {
+    if (!(await accessCheck())) { S.started = false; return; }
+    if (!(await settingsDown())) return;
+    showGate(false); load();
+    setInterval(async () => { if (!(await accessCheck())) location.reload(); }, 10 * 60e3);
+    setInterval(() => settingsUp(), 20e3);
+    addEventListener('pagehide', () => settingsUp());
+  }, 0);
 });
 })();

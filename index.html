@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.css" rel="stylesheet">
-<link href="style.css?v=1794687265" rel="stylesheet">
+<link href="style.css?v=1795097504" rel="stylesheet">
 </head>
 <body class="theme-a">
 
@@ -22,6 +22,7 @@
     <button data-mode="rent" class="on">Аренда</button>
     <button data-mode="buy">Покупка</button>
   </div>
+  <button class="icon-btn" id="adminBtn" title="Админка: доступы" hidden>👑</button>
   <button class="icon-btn" id="themeBtn" title="Тема">◐</button>
 </header>
 
@@ -279,13 +280,34 @@
   <div id="detailBody"></div>
 </aside>
 
+<!-- админка -->
+<div class="amodal" id="adminModal" hidden>
+  <div class="acard">
+    <button class="close" id="adminClose">×</button>
+    <h2>Доступы</h2>
+    <form id="agForm" class="agform">
+      <div class="agrow"><input type="email" id="agEmail" placeholder="почта" required><input id="agName" placeholder="имя (для себя)"></div>
+      <div class="agrow"><label>Оплачено до <input type="date" id="agUntil"></label>
+        <label>Устройств <select id="agDev"><option>1</option><option selected>2</option><option>3</option><option>5</option></select></label></div>
+      <input id="agNote" placeholder="заметка: 100 €/мес, маклер, сестра…">
+      <label class="check"><input type="checkbox" id="agShared"> Общая база со мной (видит мои дома и подборки — как Ариша)</label>
+      <button type="submit" id="agBtn">Выдать доступ</button>
+      <p class="hint">Человек получит свою пустую базу: свои дома, подборки, избранное и фильтры. Лента, радар и все слои карты — общие. Если доступа ещё не было, сразу появится пароль, который нужно ему отправить.</p>
+    </form>
+    <div id="agResult" class="agres" hidden></div>
+    <h3>Люди</h3>
+    <div id="adminList"></div>
+  </div>
+</div>
+
 <!-- вход -->
 <div class="gate" id="gate" hidden>
   <form class="gate-card" id="gateForm">
     <div class="brand big">Wien<span>·</span>квартиры</div>
-    <p id="gateText">Вход по ссылке на почту. Пароль не нужен.</p>
+    <p id="gateText">Вход по почте и паролю, который тебе выдали. Без пароля — пришлём ссылку на почту.</p>
     <input type="email" id="gateEmail" placeholder="почта" required autocomplete="email">
-    <button type="submit" id="gateBtn">Прислать ссылку</button>
+    <input type="password" id="gatePass" placeholder="пароль" autocomplete="current-password">
+    <button type="submit" id="gateBtn">Войти</button>
     <p class="gate-note" id="gateNote"></p>
   </form>
 </div>
@@ -295,6 +317,6 @@
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="config.js?v=1794563009"></script>
-<script src="app.js?v=1794687265"></script>
+<script src="app.js?v=1795097504"></script>
 </body>
 </html>

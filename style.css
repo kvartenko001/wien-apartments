@@ -442,3 +442,24 @@ select.mini{background:transparent;color:inherit;border:1px solid var(--line);bo
 .optgrid button:hover{border-color:rgba(251,191,36,.5)}
 .optgrid button.on{background:rgba(251,191,36,.14);border-color:var(--amber);box-shadow:inset 0 0 0 1px var(--amber)}
 .optgrid button.on b{color:var(--amber)}
+
+.amodal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:40px 12px;overflow:auto}
+.amodal[hidden]{display:none}
+.acard{position:relative;background:var(--panel-solid);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:18px 18px 22px;width:min(720px,100%);max-height:calc(100vh - 80px);overflow:auto}
+.acard h2{margin:0 0 12px;font-size:18px}.acard h3{margin:18px 0 8px;font-size:15px}
+.acard .close{position:absolute;right:12px;top:10px}
+.agform{display:grid;gap:8px}.agrow{display:flex;gap:8px;flex-wrap:wrap}.agrow>*{flex:1;min-width:160px}
+.agform input,.agform select{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:inherit}
+.agform label{font-size:12px;color:var(--dim);display:flex;gap:6px;align-items:center}
+.agform button[type=submit]{background:var(--amber);color:#1a1205;border:0;border-radius:9px;padding:9px;font-weight:600;cursor:pointer}
+.agres{margin-top:12px;padding:12px;border:1px solid var(--amber);border-radius:10px;background:rgba(251,191,36,.08);font-size:13px}
+.agres code{font-size:15px;background:var(--panel-2);padding:2px 6px;border-radius:5px}
+.agres textarea{width:100%;margin:8px 0;background:var(--panel-2);color:inherit;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px}
+.agres button,.amb button{background:var(--panel-2);border:1px solid var(--line);color:inherit;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px}
+.amem{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.amh{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.amh small{color:var(--dim)}
+.ast{margin-left:auto;font-size:11px;padding:2px 8px;border-radius:20px}.ast.on{background:rgba(74,222,128,.15);color:#4ade80}.ast.off{background:rgba(248,113,113,.15);color:#f87171}
+.amm{font-size:12px;color:var(--dim);margin:4px 0}
+.amem details{font-size:12px;margin-top:4px}.amem summary{cursor:pointer;color:var(--dim)}.amd{padding:6px 0 2px 12px;line-height:1.5}
+.amb{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.amb select{background:var(--panel-2);border:1px solid var(--line);color:inherit;border-radius:7px;padding:3px}
+
